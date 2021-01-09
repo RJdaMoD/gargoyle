@@ -8,6 +8,9 @@
 #you want to use.  Make sure the IP address is on the same network as the modem.
 #ROUTER_IP=10.0.0.2
 
+#strip vlan tag from interface
+interface=$(echo $interface | sed 's/^\([^.]*\)\.[0-9]\+$/\1/')
+
 #Main case statement used only by udhcp which only calls with one of the 
 #following four key words in parameter 1.
 case "$1" in
@@ -34,15 +37,17 @@ esac
 #if we get here then udhcp did not call us.  Must be from pppd or /usr/lib/gargoyle_firewall_util
 
 #configure the ethernet interface.
+#first strip off vlan tag
+interface=$(echo $2 | sed 's/^\([^.]*\)\.[0-9]\+$/\1/')
 if [ -n "$ROUTER_IP" ] ; then
 	#In manual mode the user gave us an IP address for our interface
-	ifconfig $2 $ROUTER_IP netmask 255.255.255.0
+	ifconfig $interface $ROUTER_IP netmask 255.255.255.0
 else
 	#In auto mode we first check if we have an ip address already.
-	ROUTER_IP=$(ifconfig $2 | grep "inet addr:")
+	ROUTER_IP=$(ifconfig $interface | grep "inet addr:")
 	if [ -z "$ROUTER_IP" ]; then
 		#Dont have one so try an get one.
-		udhcpc -f -i $2 -n -q -s /etc/ppp/ip-up.d/modemaccess.sh
+		udhcpc -f -i $interface -n -q -s /etc/ppp/ip-up.d/modemaccess.sh
 	fi
 fi
 
