@@ -8,7 +8,8 @@
 
 echo "dhcpLeaseLines = new Array();"
 if [ -e /tmp/dhcp.leases ] ; then
-	cat /tmp/dhcp.leases | awk '{print "dhcpLeaseLines.push(\""$0"\");"}'
+#	cat /tmp/dhcp.leases | awk '{print "dhcpLeaseLines.push(\""$0"\");"}'
+        cat /tmp/dhcp.leases | awk '/^[0-9]+[\t ][0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}/ {print "dhcpLeaseLines.push(\""$0"\");"}; /^[0-9]+[\t ][0-9]+[\t ][^\t ]+[\t ][^\t ]+[\t ][0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2})*$/ {print "dhcpLeaseLines.push(\""$1" "substr($5,length($5)-16)" "$3" "$4"\");"}'
 fi
 
 echo "dhcp6LeaseLines = new Array();"
