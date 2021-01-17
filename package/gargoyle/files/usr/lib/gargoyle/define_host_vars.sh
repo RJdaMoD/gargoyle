@@ -8,7 +8,8 @@
 
 echo "dhcpLeaseLines = new Array();"
 if [ -e /tmp/dhcp.leases ] ; then
-	cat /tmp/dhcp.leases | awk '{print "dhcpLeaseLines.push(\""$0"\");"}'
+#	cat /tmp/dhcp.leases | awk '{print "dhcpLeaseLines.push(\""$0"\");"}'
+        cat /tmp/dhcp.leases | awk '/^[0-9]+[\t ][0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}/ {print "dhcpLeaseLines.push(\""$0"\");"}; /^[0-9]+[\t ][0-9]+[\t ][^\t ]+[\t ][^\t ]+[\t ][0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2})*$/ {print "dhcpLeaseLines.push(\""$1" "substr($5,length($5)-16)" "$3" "$4"\");"}'
 fi
 
 echo "dhcp6LeaseLines = new Array();"
@@ -32,7 +33,7 @@ elif [ -e /lib/wifi/mac80211.sh ] && [ -e "/sys/class/ieee80211/phy0" ] ; then
 			cli=$( iwinfo $ap i | grep Client )
 			hf=$( iwinfo $ap i | grep -o "Channel:.*" | awk '{if ($2 > 14) print "5GHz"; else print "2.4GHz";}' )
 			if [ -n "$cli" ] ; then arrayname="wifiClientLines" ; else arrayname="wifiLines" ; fi
-			iw $ap station dump | awk ' /^Station/ { printf "'$arrayname'.push(\""$2" " ;} /\tsignal:/ {printf ""$2" "} /tx bitrate:/ {printf ""$3" "} /rx bitrate:/ {printf ""$3" "} /autho/ {print "'$hf' '$ap'\");"}'
+			iw $ap station dump | awk ' /^Station/ { printf "'$arrayname'.push(\""$2" " ;} /^[ \t]*signal:/ {printf ""$2" "} /tx.*bitrate:/ {printf ""$3" "} /rx.*bitrate:/ {printf ""$3" "} /autho/ {print "'$hf' '$ap'\");"}'
 		done
 	fi
 else
