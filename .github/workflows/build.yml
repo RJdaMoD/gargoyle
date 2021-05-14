@@ -1,0 +1,19 @@
+name: Build
+
+on:
+  push:
+    branches: [ git-action-build ]
+  pull_request:
+    branches: [ git-action-build ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: configure
+      run: ./configure
+    - name: make
+      run: make
