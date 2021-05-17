@@ -13,5 +13,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: free disk space
+      run: df && apt-clean && df
     - name: make
       run: make
