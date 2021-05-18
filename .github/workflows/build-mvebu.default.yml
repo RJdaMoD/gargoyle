@@ -15,5 +15,7 @@ jobs:
     - uses: actions/checkout@v2
     - name: free disk space
       run: df && sudo apt clean && df
-    - name: make
-      run: make
+    - name: make mvebu.default
+      run: make mvebu.default
+    - name: check remaining disk space
+      run: df
