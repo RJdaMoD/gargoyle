@@ -22,5 +22,9 @@ jobs:
     - name: upload build results
       uses: actions/upload-artifact@v2
       with:
-        name: build results
-        path: mvebu-src
+        name: build_results
+        path: |
+          built
+          images
+        if-no-files-found: error
+        
