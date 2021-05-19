@@ -1,4 +1,4 @@
-name: Build
+name: Build mvebu.default
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 jobs:
   build:
 
-    runs-on: ubuntu-16.04
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v2
@@ -19,3 +19,8 @@ jobs:
       run: make -j1 mvebu.default
     - name: check remaining disk space
       run: df
+    - name: upload build results
+      uses: actions/upload-artifact@v2
+      with:
+        name: build results
+        path: mvebu-src
