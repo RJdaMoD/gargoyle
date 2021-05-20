@@ -16,7 +16,7 @@ jobs:
     - name: free disk space
       run: df && sudo apt clean && df
     - name: make mvebu.default
-      run: make -j1 mvebu.default
+      run: make mvebu.default
     - name: check remaining disk space
       run: df
     - name: upload build results
