@@ -1,0 +1,26 @@
+name: Build mvebu.default
+
+on: [ push, pull_request ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: free disk space
+      run: df && sudo apt clean && df
+    - name: make mvebu.default
+      run: make mvebu.default
+    - name: check remaining disk space
+      run: df
+    - name: upload build results
+      uses: actions/upload-artifact@v2
+      with:
+        name: build_results
+        path: |
+          built
+          images
+        if-no-files-found: error
+        
