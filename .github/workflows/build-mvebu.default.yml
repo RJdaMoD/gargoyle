@@ -1,10 +1,6 @@
 name: Build mvebu.default
 
-on:
-  push:
-    branches: [ git-action-build ]
-  pull_request:
-    branches: [ git-action-build ]
+on: [ push, pull_request ]
 
 jobs:
   build:
