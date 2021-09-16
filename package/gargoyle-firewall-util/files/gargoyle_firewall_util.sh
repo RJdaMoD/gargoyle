@@ -722,14 +722,16 @@ ip_in_subnet() {
 	[ $(($ip&$subnet_mask)) = $(($subnet_ip&$subnet_mask)) ]
 }
 
+EBFILTER="ebtables -t filter"
+
 isolate_guest_and_local_networks() {
-	ebtables -t filter -F FORWARD
-	ebtables -t filter -F INPUT
-	ebtables -t filter -F OUTPUT
-	ebtables -t filter -N logAndDrop
-	ebtables -t filter -F logAndDrop
-	ebtables -t filter -P logAndDrop DROP
-	ebtables -t filter -A logAndDrop --log-level warning \
+	$EBFILTER -F FORWARD
+	$EBFILTER -F INPUT
+	$EBFILTER -F OUTPUT
+	$EBFILTER -X
+	$EBFILTER -N logAndDrop -P DROP
+	$EBFILTER -F logAndDrop
+	$EBFILTER -A logAndDrop --log-level warning \
 		--log-prefix "ebtables-drop" --log-ip --log-arp --log-ip6 -j DROP
 	local router_ip=$(uci -q -p /tmp/state get network.lan.gateway) # get ip of router if we are an access point
 	local ap_ip=$(uci -p /tmp/state get network.lan.ipaddr)
@@ -843,11 +845,6 @@ isolate_guest_and_local_networks() {
 	config_load "network"
 	config_foreach check_guest_or_local_or_censored_network "interface" $router_ip \
 		$lan_netmask $is_router
-		
-	#clean duplicate rules
-	clean_duplicate_ebtables_rules filter INPUT
-	clean_duplicate_ebtables_rules filter FORWARD
-	clean_duplicate_ebtables_rules filter OUTPUT
 }
 
 clean_duplicate_ebtables_rules() {
@@ -894,6 +891,7 @@ decompose_ip_and_port() {
 		eval "$mask_var=$(echo $ip_and_port | sed '/^[^/]*$/d;s|^\[.*/||;s/\].*$//')"
 		eval "$port_var=$(echo $ip_and_port | sed '/^\[.*\]$/d;s/^\[.*\]://;s/-/:/')"
 	else
+#		echo "Invalid ip+port: $ip_and_port"
 		return 1
 	fi
 	return 0
@@ -906,15 +904,14 @@ lookup_host_addresses() {
 decompose_host_address_and_call_proc() {
 	local address="$1"
 	shift
-	local proc="$1"
-	shift
+    local proc="$1"
+    shift
 	local rc=0
 	if [ $(echo $address | grep -E "^/.*\.sh$" | wc -l) -eq 1 ]; then
-		echo "Executing $address..."
-		sh $address "$@"
-		return 0
+        echo "Executing $address..."
+        sh $address
+        return 0
 	elif [ $(echo $address | grep -E "^/" | wc -l) -eq 1 ]; then
-	if [ $(echo $address | grep -E "^/" | wc -l) -eq 1 ]; then
 		for host in $(cat $address | grep -E "^ *(0\.0\.0\.0 |:: )? *[^ ]+ *$" \
 				| sed -E 's/^ *(0\.0\.0\.0 |:: )? *([^ ]+) *$/\2/' | sort | uniq); do
 			decompose_host_address_and_call_proc "$host" $proc "$@" || rc=$?
@@ -934,37 +931,52 @@ decompose_host_address_and_call_proc() {
 	fi
 }
 
+constructChainAppendCommandsFromPrefix() {
+	local chain_prefix="$1"
+	local lif=$2
+	local chain_IN_var=$3
+	local chain_FIN_var=$4
+	local chain_OUT_var=$5
+	local chain_FOUT_var=$6
+	if [ -n "$chain_prefix" ]; then
+		eval "$chain_IN_var=\"$EBFILTER   -A $chain_prefix"_"$lif"_IN"\""
+		eval "$chain_FIN_var=\"$EBFILTER  -A $chain_prefix"_"$lif"_FIN"\""
+		eval "$chain_OUT_var=\"$EBFILTER  -A $chain_prefix"_"$lif"_OUT"\""
+		eval "$chain_FOUT_var=\"$EBFILTER -A $chain_prefix"_"$lif"_FOUT"\""
+	else
+		eval "$chain_IN_var=\"$EBFILTER   -A INPUT   -i $lif\""
+		eval "$chain_FIN_var=\"$EBFILTER  -A FORWARD -i $lif\""
+		eval "$chain_OUT_var=\"$EBFILTER  -A OUTPUT  -o $lif\""
+		eval "$chain_FOUT_var=\"$EBFILTER -A FORWARD -o $lif\""
+	fi
+}
+
 allow_ip_for_interface() {
 	local allowed_ip_and_port="$1"
-	local lif="$2"
-	local router_ip="$3"
-	local lan_netmask="$4"
-	local allowed_ip_type
-	local allowed_ip
-	local allowed_mask
-	local allowed_port
+	local chain_prefix="$2"
+	local lif="$3"
+	local router_ip="$4"
+	local lan_netmask="$5"
+	local allowed_ip_type allowed_ip allowed_mask allowed_port
 	if ! decompose_ip_and_port "$allowed_ip_and_port" allowed_ip_type allowed_ip \
 			allowed_mask allowed_port; then
 		decompose_host_address_and_call_proc "$allowed_ip_and_port" allow_ip_for_interface \
-            $lif $router_ip $lan_netmask
+            $chain_prefix $lif $router_ip $lan_netmask
 		return $?
 	fi
-#	echo "$lif: allow ip $allowed_ip_and_port: $allowed_ip_type , $allowed_ip , $allowed_mask , $allowed_port"
 	if [ -n "$allowed_mask" ]; then
 		allowed_ip=$allowed_ip/$allowed_mask
 	fi
 	local needs_routing="0"
+	local EBIN EBFIN EBOUT EBFOUT
+	constructChainAppendCommandsFromPrefix $chain_prefix $lif EBIN EBFIN EBOUT EBFOUT
 	local ipp
 	if [ "$allowed_ip_type" = "IPV4" ]; then
 		if ip_in_subnet "$allowed_ip" "$router_ip" "$lan_netmask"; then
-			ebtables -t filter -A INPUT -i "$lif" -p ARP \
-				--arp-ip-dst "$allowed_ip" -j ACCEPT
-			ebtables -t filter -A OUTPUT -o "$lif" -p ARP \
-				--arp-ip-src "$allowed_ip" -j ACCEPT
-			ebtables -t filter -A FORWARD -i "$lif" -p ARP \
-				--arp-ip-dst "$allowed_ip" -j ACCEPT
-			ebtables -t filter -A FORWARD -o "$lif" -p ARP \
-				--arp-ip-src "$allowed_ip" -j ACCEPT
+			$EBIN   -p ARP --arp-ip-dst "$allowed_ip" -j ACCEPT
+			$EBOUT  -p ARP --arp-ip-src "$allowed_ip" -j ACCEPT
+			$EBFIN  -p ARP --arp-ip-dst "$allowed_ip" -j ACCEPT
+			$EBFOUT -p ARP --arp-ip-src "$allowed_ip" -j ACCEPT
 		else
 			needs_routing="1"
 		fi
@@ -973,74 +985,58 @@ allow_ip_for_interface() {
 		ipp="ip6"
 	fi
 	if [ -n "$allowed_port" ]; then
-		ebtables -t filter -A INPUT -i "$lif" -p $allowed_ip_type \
-			--$ipp-dst "$allowed_ip" --$ipp-proto tcp --$ipp-dport "$allowed_port" \
-			-j ACCEPT
-		ebtables -t filter -A OUTPUT -o "$lif" -p $allowed_ip_type \
-			--$ipp-src "$allowed_ip" --$ipp-proto tcp --$ipp-sport "$allowed_port" \
-			-j ACCEPT
-		ebtables -t filter -A FORWARD -i "$lif" -p $allowed_ip_type \
-			--$ipp-dst "$allowed_ip" --$ipp-proto tcp --$ipp-dport "$allowed_port" \
-			-j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p $allowed_ip_type \
-			--$ipp-src "$allowed_ip" --$ipp-proto tcp --$ipp-sport "$allowed_port" \
-			-j ACCEPT
-		ebtables -t filter -A INPUT -i "$lif" -p $allowed_ip_type \
-			--$ipp-dst "$allowed_ip" --$ipp-proto udp --$ipp-dport "$allowed_port" \
-			-j ACCEPT
-		ebtables -t filter -A OUTPUT -o "$lif" -p $allowed_ip_type \
-			--$ipp-src "$allowed_ip" --$ipp-proto udp --$ipp-sport "$allowed_port" \
-			-j ACCEPT
-		ebtables -t filter -A FORWARD -i "$lif" -p $allowed_ip_type \
-			--$ipp-dst "$allowed_ip" --$ipp-proto udp --$ipp-dport "$allowed_port" \
-			-j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p $allowed_ip_type \
-			--$ipp-src "$allowed_ip" --$ipp-proto udp --$ipp-sport "$allowed_port" \
-			-j ACCEPT
+		$EBIN   -p $allowed_ip_type --$ipp-dst "$allowed_ip" --$ipp-proto tcp \
+			--$ipp-dport "$allowed_port" -j ACCEPT
+		$EBOUT  -p $allowed_ip_type --$ipp-src "$allowed_ip" --$ipp-proto tcp \
+			--$ipp-sport "$allowed_port" -j ACCEPT
+		$EBFIN  -p $allowed_ip_type --$ipp-dst "$allowed_ip" --$ipp-proto tcp \
+			--$ipp-dport "$allowed_port" -j ACCEPT
+		$EBFOUT -p $allowed_ip_type --$ipp-src "$allowed_ip" --$ipp-proto tcp \
+			--$ipp-sport "$allowed_port" -j ACCEPT
+		$EBIN   -p $allowed_ip_type --$ipp-dst "$allowed_ip" --$ipp-proto udp \
+			--$ipp-dport "$allowed_port" -j ACCEPT
+		$EBOUT  -p $allowed_ip_type --$ipp-src "$allowed_ip" --$ipp-proto udp \
+			--$ipp-sport "$allowed_port" -j ACCEPT
+		$EBFIN  -p $allowed_ip_type --$ipp-dst "$allowed_ip" --$ipp-proto udp \
+			--$ipp-dport "$allowed_port" -j ACCEPT
+		$EBFOUT -p $allowed_ip_type --$ipp-src "$allowed_ip" --$ipp-proto udp \
+			--$ipp-sport "$allowed_port" -j ACCEPT
 	else
-		ebtables -t filter -A INPUT -i "$lif" -p $allowed_ip_type \
-			--$ipp-dst "$allowed_ip" -j ACCEPT
-		ebtables -t filter -A OUTPUT -o "$lif" -p $allowed_ip_type \
-			--$ipp-src "$allowed_ip" -j ACCEPT
-		ebtables -t filter -A FORWARD -i "$lif" -p $allowed_ip_type \
-			--$ipp-dst "$allowed_ip" -j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p $allowed_ip_type \
-			--$ipp-src "$allowed_ip" -j ACCEPT
+		$EBIN   -p $allowed_ip_type --$ipp-dst "$allowed_ip" -j ACCEPT
+		$EBOUT  -p $allowed_ip_type --$ipp-src "$allowed_ip" -j ACCEPT
+		$EBFIN  -p $allowed_ip_type --$ipp-dst "$allowed_ip" -j ACCEPT
+		$EBFOUT -p $allowed_ip_type --$ipp-src "$allowed_ip" -j ACCEPT
 	fi
 	[ "$needs_routing" = "1" ] && return 1	
 }
 
 forbid_ip_for_interface() {
 	local forbidden_ip_and_port="$1"
-	local lif="$2"
-	local router_ip="$3"
-	local lan_netmask="$4"
-	local dropTarget="$5"
+	local chain_prefix="$2"
+	local lif="$3"
+	local router_ip="$4"
+	local lan_netmask="$5"
+	local dropTarget="$6"
 	[ -z $dropTarget ] && dropTarget=DROP
-	local forbidden_ip_type
-	local forbidden_ip
-	local forbidden_mask
-	local forbidden_port
-	local ipp=""
+	local forbidden_ip_type forbidden_ip forbidden_mask forbidden_port
 	if ! decompose_ip_and_port "$forbidden_ip_and_port" forbidden_ip_type \
 			forbidden_ip forbidden_mask forbidden_port; then
 		decompose_host_address_and_call_proc "$forbidden_ip_and_port" forbid_ip_for_interface \
-			$lif $router_ip $lan_netmask $dropTarget			
+			$chain_prefix $lif $router_ip $lan_netmask $dropTarget			
 		return $?
 	fi
 	if [ -n "$forbidden_mask" ]; then
 		forbidden_ip=$forbidden_ip/$forbidden_mask
 	fi
+	local EBIN EBFIN EBOUT EBFOUT
+	constructChainAppendCommandsFromPrefix $chain_prefix $lif EBIN EBFIN EBOUT EBFOUT
+	local ipp
 	if [ "$forbidden_ip_type" = "IPV4" ]; then
 		if ip_in_subnet "$forbidden_ip" "$router_ip" "$lan_netmask"; then
-			ebtables -t filter -A INPUT -i "$lif" -p ARP \
-				--arp-ip-dst "$forbidden_ip" -j $dropTarget
-			ebtables -t filter -A OUTPUT -o "$lif" -p ARP \
-				--arp-ip-src "$forbidden_ip" -j $dropTarget
-			ebtables -t filter -A FORWARD -i "$lif" -p ARP \
-				--arp-ip-dst "$forbidden_ip" -j $dropTarget
-			ebtables -t filter -A FORWARD -o "$lif" -p ARP \
-				--arp-ip-src "$forbidden_ip" -j $dropTarget
+			$EBIN   -p ARP --arp-ip-dst "$forbidden_ip" -j $dropTarget
+			$EBOUT  -p ARP --arp-ip-src "$forbidden_ip" -j $dropTarget
+			$EBFIN  -p ARP --arp-ip-dst "$forbidden_ip" -j $dropTarget
+			$EBFOUT -p ARP --arp-ip-src "$forbidden_ip" -j $dropTarget
 		fi
 		ipp="ip"
 	elif [ "$forbidden_ip_type" = "IPV6" ]; then
@@ -1048,126 +1044,116 @@ forbid_ip_for_interface() {
 	fi
 	if [ -n $ipp ]; then
 		if [ -n "$forbidden_port" ]; then
-			ebtables -t filter -A INPUT -i "$lif" -p $forbidden_ip_type \
-				--$ipp-dst "$forbidden_ip" --$ipp-proto tcp \
+			$EBIN   -p $forbidden_ip_type --$ipp-dst "$forbidden_ip" --$ipp-proto tcp \
 				--$ipp-dport "$forbidden_port" -j $dropTarget
-			ebtables -t filter -A OUTPUT -o "$lif" -p $forbidden_ip_type \
-				--$ipp-src "$forbidden_ip" --$ipp-proto tcp \
+			$EBOUT  -p $forbidden_ip_type --$ipp-src "$forbidden_ip" --$ipp-proto tcp \
 				--$ipp-sport "$forbidden_port" -j $dropTarget
-			ebtables -t filter -A FORWARD -i "$lif" -p $forbidden_ip_type \
-				--$ipp-dst "$forbidden_ip" --$ipp-proto tcp \
+			$EBFIN  -p $forbidden_ip_type --$ipp-dst "$forbidden_ip" --$ipp-proto tcp \
 				--$ipp-dport "$forbidden_port" -j $dropTarget
-			ebtables -t filter -A FORWARD -o "$lif" -p $forbidden_ip_type \
-				--$ipp-src "$forbidden_ip" --$ipp-proto tcp \
+			$EBFOUT -p $forbidden_ip_type --$ipp-src "$forbidden_ip" --$ipp-proto tcp \
 				--$ipp-sport "$forbidden_port" -j $dropTarget
-			ebtables -t filter -A INPUT -i "$lif" -p $forbidden_ip_type \
-				--$ipp-dst "$forbidden_ip" --$ipp-proto udp \
+			$EBIN   -p $forbidden_ip_type --$ipp-dst "$forbidden_ip" --$ipp-proto udp \
 				--$ipp-dport "$forbidden_port" -j $dropTarget
-			ebtables -t filter -A OUTPUT -o "$lif" -p $forbidden_ip_type \
-				--$ipp-src "$forbidden_ip" --$ipp-proto udp \
+			$EBOUT  -p $forbidden_ip_type --$ipp-src "$forbidden_ip" --$ipp-proto udp \
 				--$ipp-sport "$forbidden_port" -j $dropTarget
-			ebtables -t filter -A FORWARD -i "$lif" -p $forbidden_ip_type \
-				--$ipp-dst "$forbidden_ip" --$ipp-proto udp \
+			$EBFIN  -p $forbidden_ip_type --$ipp-dst "$forbidden_ip" --$ipp-proto udp \
 				--$ipp-dport "$forbidden_port" -j $dropTarget
-			ebtables -t filter -A FORWARD -o "$lif" -p $forbidden_ip_type \
-				--$ipp-src "$forbidden_ip" --$ipp-proto udp \
+			$EBFOUT -p $forbidden_ip_type --$ipp-src "$forbidden_ip" --$ipp-proto udp \
 				--$ipp-sport "$forbidden_port" -j $dropTarget
 		else
-			ebtables -t filter -A INPUT -i "$lif" -p $forbidden_ip_type \
-				--$ipp-dst "$forbidden_ip" -j $dropTarget
-			ebtables -t filter -A OUTPUT -o "$lif" -p $forbidden_ip_type \
-				--$ipp-src "$forbidden_ip" -j $dropTarget
-			ebtables -t filter -A FORWARD -i "$lif" -p $forbidden_ip_type \
-				--$ipp-dst "$forbidden_ip" -j $dropTarget
-			ebtables -t filter -A FORWARD -o "$lif" -p $forbidden_ip_type \
-				--$ipp-src "$forbidden_ip" -j $dropTarget
+			$EBIN -p $forbidden_ip_type --$ipp-dst "$forbidden_ip" -j $dropTarget
+			$EBOUT -p $forbidden_ip_type --$ipp-src "$forbidden_ip" -j $dropTarget
+			$EBFIN -p $forbidden_ip_type --$ipp-dst "$forbidden_ip" -j $dropTarget
+			$EBFOUT -p $forbidden_ip_type --$ipp-src "$forbidden_ip" -j $dropTarget
 		fi
 	fi
 }
 
 allow_server_for_interface() {
 	local allowed_server="$1"
-	local lif="$2"
-	local router_ip="$3"
-	local lan_netmask="$4"
-	local allowed_server_ip_type
-	local allowed_server_ip
-	local allowed_server_mask
-	local allowed_server_port
-	local ipp
+	local chain_prefix="$2"
+	local lif="$3"
+	local router_ip="$4"
+	local lan_netmask="$5"
+	local allowed_server_ip_type allowed_server_ip allowed_server_mask allowed_server_port
 	if ! decompose_ip_and_port "$allowed_server" allowed_server_ip_type \
 			allowed_server_ip allowed_server_mask allowed_server_port; then
 		decompose_host_address_and_call_proc "$allowed_server" allow_server_for_interface \
-			$lif $router_ip $lan_netmask
+			$chain_prefix $lif $router_ip $lan_netmask
 		return $?
 	fi
 	if [ -n "$allowed_server_mask" ]; then
 		allowed_server_ip=$allowed_server_ip/$allowed_server_mask
 	fi
+	local EBIN EBFIN EBOUT EBFOUT
+	constructChainAppendCommandsFromPrefix $chain_prefix $lif EBIN EBFIN EBOUT EBFOUT
+	local ipp
 	if [ "$allowed_server_ip_type" = "IPV4" ]; then
-		ebtables -t filter -A INPUT -i "$lif" -p ARP \
-			--arp-ip-src "$allowed_server_ip" -j ACCEPT
-		ebtables -t filter -A OUTPUT -o "$lif" -p ARP \
-			--arp-ip-dst "$allowed_server_ip" -j ACCEPT
-		ebtables -t filter -A FORWARD -i "$lif" -p ARP \
-			--arp-ip-src "$allowed_server_ip" -j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p ARP \
-			--arp-ip-dst "$allowed_server_ip" -j ACCEPT
-		ebtables -t filter -A INPUT -i "$lif" -p IPV4 \
-			--ip-proto icmp --ip-src "$allowed_server_ip" -j ACCEPT
-		ebtables -t filter -A OUTPUT -o "$lif" -p IPV4 \
-			--ip-proto icmp --ip-dst "$allowed_server_ip" -j ACCEPT
-		ebtables -t filter -A FORWARD -i "$lif" -p IPV4 \
-			--ip-proto icmp --ip-src "$allowed_server_ip" -j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p IPV4 \
-			--ip-proto icmp --ip-dst "$allowed_server_ip" -j ACCEPT
+		$EBIN   -p ARP --arp-ip-src "$allowed_server_ip" -j ACCEPT
+		$EBOUT  -p ARP --arp-ip-dst "$allowed_server_ip" -j ACCEPT
+		$EBFIN  -p ARP --arp-ip-src "$allowed_server_ip" -j ACCEPT
+		$EBFOUT -p ARP --arp-ip-dst "$allowed_server_ip" -j ACCEPT
+		$EBIN   -p IPV4 --ip-proto icmp --ip-src "$allowed_server_ip" -j ACCEPT
+		$EBOUT  -p IPV4 --ip-proto icmp --ip-dst "$allowed_server_ip" -j ACCEPT
+		$EBFIN  -p IPV4 --ip-proto icmp --ip-src "$allowed_server_ip" -j ACCEPT
+		$EBFOUT -p IPV4 --ip-proto icmp --ip-dst "$allowed_server_ip" -j ACCEPT
 		ipp="ip"
 	elif [ "$allowed_server_ip_type" = "IPV6" ]; then
-		ebtables -t filter -A FORWARD -o "$lif" -p IPV6 \
-			--ip6-proto ipv6-icmp --ip6-dst "ff02::/ffff::" -j ACCEPT
-		ebtables -t filter -A FORWARD -i "$lif" -p IPV6 \
-			--ip6-proto ipv6-icmp --ip6-src "$allowed_server_ip" -j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p IPV6 \
-			--ip6-proto ipv6-icmp --ip6-dst "$allowed_server_ip" -j ACCEPT
+		$EBFOUT -p IPV6 --ip6-proto ipv6-icmp --ip6-dst "ff02::/ffff::" -j ACCEPT
+		$EBFIN  -p IPV6 --ip6-proto ipv6-icmp --ip6-src "$allowed_server_ip" -j ACCEPT
+		$EBFOUT -p IPV6 --ip6-proto ipv6-icmp --ip6-dst "$allowed_server_ip" -j ACCEPT
 		ipp="ip6"
 	fi
 	if [ -n "$allowed_server_port" ]; then
-		ebtables -t filter -A INPUT -i "$lif" -p $allowed_server_ip_type \
-			--$ipp-src "$allowed_server_ip" --$ipp-proto tcp \
+		$EBIN   -p $allowed_server_ip_type --$ipp-src "$allowed_server_ip" --$ipp-proto tcp \
 			--$ipp-sport "$allowed_server_port" -j ACCEPT
-		ebtables -t filter -A OUTPUT -o "$lif" -p $allowed_server_ip_type \
-			--$ipp-dst "$allowed_server_ip" --$ipp-proto tcp \
+		$EBOUT  -p $allowed_server_ip_type --$ipp-dst "$allowed_server_ip" --$ipp-proto tcp \
 			--$ipp-dport "$allowed_server_port" -j ACCEPT
-		ebtables -t filter -A FORWARD -i "$lif" -p $allowed_server_ip_type \
-			--$ipp-src "$allowed_server_ip" --$ipp-proto tcp \
+		$EBFIN  -p $allowed_server_ip_type --$ipp-src "$allowed_server_ip" --$ipp-proto tcp \
 			--$ipp-sport "$allowed_server_port" -j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p $allowed_server_ip_type \
-			--$ipp-dst "$allowed_server_ip" --$ipp-proto tcp \
+		$EBFOUT -p $allowed_server_ip_type --$ipp-dst "$allowed_server_ip" --$ipp-proto tcp \
 			--$ipp-dport "$allowed_server_port" -j ACCEPT
-		ebtables -t filter -A INPUT -i "$lif" -p $allowed_server_ip_type \
-			--$ipp-src "$allowed_server_ip" --$ipp-proto udp \
+		$EBIN   -p $allowed_server_ip_type --$ipp-src "$allowed_server_ip" --$ipp-proto udp \
 			--$ipp-sport "$allowed_server_port" -j ACCEPT
-		ebtables -t filter -A OUTPUT -o "$lif" -p $allowed_server_ip_type \
-			--$ipp-dst "$allowed_server_ip" --$ipp-proto udp \
+		$EBOUT  -p $allowed_server_ip_type --$ipp-dst "$allowed_server_ip" --$ipp-proto udp \
 			--$ipp-dport "$allowed_server_port" -j ACCEPT
-		ebtables -t filter -A FORWARD -i "$lif" -p $allowed_server_ip_type \
-			--$ipp-src "$allowed_server_ip" --$ipp-proto udp \
+		$EBFIN  -p $allowed_server_ip_type --$ipp-src "$allowed_server_ip" --$ipp-proto udp \
 			--$ipp-sport "$allowed_server_port" -j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p $allowed_server_ip_type \
-			--$ipp-dst "$allowed_server_ip" --$ipp-proto udp \
+		$EBFOUT -p $allowed_server_ip_type --$ipp-dst "$allowed_server_ip" --$ipp-proto udp \
 			--$ipp-dport "$allowed_server_port" -j ACCEPT
 	else
-		ebtables -t filter -A FORWARD -i "$lif" -p $allowed_server_ip_type \
-			--$ipp-src "$allowed_server_ip" -j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p $allowed_server_ip_type \
-			--$ipp-dst "$allowed_server_ip" -j ACCEPT
-		ebtables -t filter -A INPUT -i "$lif" -p $allowed_server_ip_type \
-			--$ipp-src "$allowed_server_ip" -j ACCEPT
-		ebtables -t filter -A OUTPUT -o "$lif" -p $allowed_server_ip_type \
-			--$ipp-dst "$allowed_server_ip" -j ACCEPT
+		$EBIN   -p $allowed_server_ip_type --$ipp-src "$allowed_server_ip" -j ACCEPT
+		$EBOUT  -p $allowed_server_ip_type --$ipp-dst "$allowed_server_ip" -j ACCEPT
+		$EBFIN  -p $allowed_server_ip_type --$ipp-src "$allowed_server_ip" -j ACCEPT
+		$EBFOUT -p $allowed_server_ip_type --$ipp-dst "$allowed_server_ip" -j ACCEPT
 	fi
 }
 
+createEbtablesChainsForPrefix() {
+	local chain_prefix="$1"
+	local lif="$2"
+	local chain_target="$3"
+	local chain_lif_prefix=$chain_prefix"_"$lif
+	case $chain_target in
+		ACCEPT|CONTINUE|DROP|RETURN)	;;
+		*)								chain_target=ACCEPT ;;
+	esac # non-builtin targets have to be put at the end of the chain
+	for suf in IN FIN OUT FOUT; do
+		$EBFILTER -N $chain_lif_prefix"_"$suf -P $chain_target
+	done
+	$EBFILTER -I INPUT   -i $lif -j $chain_lif_prefix"_IN"
+	$EBFILTER -I FORWARD -i $lif -j $chain_lif_prefix"_FIN"
+	$EBFILTER -A OUTPUT  -o $lif -j $chain_lif_prefix"_OUT"
+	$EBFILTER -A FORWARD -o $lif -j $chain_lif_prefix"_FOUT"
+}
+
+cleanEbtablesChainsForPrefix() {
+	local chain_prefix="$1"
+	local lif="$2"
+	for suf in IN FIN OUT FOUT; do
+		clean_duplicate_ebtables_rules filter $chain_prefix"_"$lif"_"$suf
+	done
+}
 
 restrict_guest_interface() {
 	local lif="$1"
@@ -1179,69 +1165,61 @@ restrict_guest_interface() {
 	local allowed_servers="$7"
 	local dropTarget="$8"
 	[ -z $dropTarget ] && dropTarget=DROP
+	createEbtablesChainsForPrefix guest $lif ACCEPT
+	local EBIN EBFIN EBOUT EBFOUT
+	constructChainAppendCommandsFromPrefix guest $lif EBIN EBFIN EBOUT EBFOUT
 	if [ -n "$allowed_ips" ]; then
 		if [ -n "$forbidden_ips" ]; then
 			for forbidden_ip in $forbidden_ips ; do
-				forbid_ip_for_interface $forbidden_ip "$lif" $router_ip $lan_netmask $dropTarget
+				forbid_ip_for_interface $forbidden_ip guest $lif $router_ip $lan_netmask $dropTarget
 			done
 		fi
 		for allowed_ip in $allowed_ips ; do
-			allow_ip_for_interface $allowed_ip "$lif" $router_ip $lan_netmask
+			allow_ip_for_interface $allowed_ip guest $lif $router_ip $lan_netmask
 		done
 	fi
 	if [ -n "$allowed_servers" ]; then
 		for allowed_server in $allowed_servers ; do
-			allow_server_for_interface $allowed_server "$lif" $router_ip $lan_netmask
+			allow_server_for_interface $allowed_server guest $lif $router_ip $lan_netmask guest
 		done
 	fi
 	if [ "$is_router" = "1" ]; then
-		ebtables -t filter -A INPUT -i "$lif" -p ARP --arp-ip-dst "$router_ip" \
-			-j ACCEPT
-		ebtables -t filter -A INPUT -i "$lif" -p IPV4 --ip-proto udp \
-			--ip-dport 67 -j ACCEPT
-		ebtables -t filter -A INPUT -i "$lif" -p IPV4 \
-			--ip-dst $router_ip --ip-proto udp --ip-dport 53 \
-			-j ACCEPT
+		$EBIN  -p ARP --arp-ip-dst "$router_ip" -j ACCEPT
+		$EBOUT -p ARP --arp-ip-src "$router_ip" -j ACCEPT
+		$EBIN  -p IPV4 --ip-proto udp --ip-dport 67 -j ACCEPT
+		$EBOUT -p IPV4 --ip-proto udp --ip-sport 67 -j ACCEPT
+		$EBIN  -p IPV4 --ip-dst $router_ip --ip-proto udp --ip-dport 53 -j ACCEPT
+		$EBOUT -p IPV4 --ip-src $router_ip --ip-proto udp --ip-sport 53 -j ACCEPT
+		$EBIN  -p IPV4 --ip-dst $router_ip --ip-proto icmp -j ACCEPT
+		$EBOUT -p IPV4 --ip-src $router_ip --ip-proto icmp -j ACCEPT
 	else
-		ebtables -t filter -A FORWARD -i "$lif" -p ARP --arp-ip-dst "$router_ip" \
-			-j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p ARP --arp-ip-src "$router_ip" \
-			-j ACCEPT
-		ebtables -t filter -A FORWARD -i "$lif" -p IPV4 \
-			--ip-dst $router_ip --ip-proto udp --ip-dport 53 \
-			-j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p IPV4 \
-			--ip-src $router_ip --ip-proto udp --ip-sport 53 \
-			-j ACCEPT
-		ebtables -t filter -A FORWARD -i "$lif" -p IPV4 --ip-proto udp \
-			--ip-dport 67 -j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p IPV4 --ip-proto udp \
-			--ip-sport 67 -j ACCEPT
+		$EBFIN  -p ARP --arp-ip-dst "$router_ip" -j ACCEPT
+		$EBFOUT -p ARP --arp-ip-src "$router_ip" -j ACCEPT
+		$EBFIN  -p IPV4 --ip-dst $router_ip --ip-proto udp --ip-dport 53 -j ACCEPT
+		$EBFOUT -p IPV4 --ip-src $router_ip --ip-proto udp --ip-sport 53 -j ACCEPT
+		$EBFIN  -p IPV4 --ip-proto udp --ip-dport 67 -j ACCEPT
+		$EBFOUT -p IPV4 --ip-proto udp --ip-sport 67 -j ACCEPT
+		$EBFIN  -p IPV4 --ip-dst $router_ip --ip-proto icmp -j ACCEPT
+		$EBFOUT -p IPV4 --ip-src $router_ip --ip-proto icmp -j ACCEPT
 	fi
-	ebtables -t filter -A INPUT -i "$lif" -p ARP \
-		--arp-ip-dst "$router_ip/$lan_netmask" -j $dropTarget
-	ebtables -t filter -A FORWARD -i "$lif" -p ARP \
-		--arp-ip-dst "$router_ip/$lan_netmask" -j $dropTarget
-	ebtables -t filter -A FORWARD -o "$lif" -p ARP \
-		--arp-ip-src "$router_ip/$lan_netmask" -j $dropTarget
-	ebtables -t filter -A INPUT -i "$lif" -p IPV4 \
-		--ip-dst "$router_ip/$lan_netmask" -j $dropTarget
-	ebtables -t filter -A FORWARD -i "$lif" -p IPV4 \
-		--ip-dst "$router_ip/$lan_netmask" -j $dropTarget
-	ebtables -t filter -A FORWARD -o "$lif" -p IPV4 \
-		--ip-src "$router_ip/$lan_netmask" -j $dropTarget
+	$EBIN   -p ARP --arp-ip-dst "$router_ip/$lan_netmask" -j $dropTarget
+	$EBFIN  -p ARP --arp-ip-dst "$router_ip/$lan_netmask" -j $dropTarget
+	$EBFOUT -p ARP --arp-ip-src "$router_ip/$lan_netmask" -j $dropTarget
+	$EBIN   -p IPV4 --ip-dst "$router_ip/$lan_netmask" -j $dropTarget
+	$EBFIN  -p IPV4 --ip-dst "$router_ip/$lan_netmask" -j $dropTarget
+	$EBFOUT -p IPV4 --ip-src "$router_ip/$lan_netmask" -j $dropTarget
 	#no IPv6 in guest network unless we are router since we would have to check ip6 addresses otherwise
 	if [ "$is_router" = "1" ]; then
-		ebtables -t filter -A FORWARD -i "$lif" --logical-out pppoe-wan -p IPV6 \
-			-j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" --logical-in pppoe-wan -p IPV6 \
-			-j ACCEPT
-		ebtables -t filter -A INPUT -i "$lif" -p IPV6 -j ACCEPT
-	else
-		ebtables -t filter -A INPUT -i "$lif" -p IPV6 -j $dropTarget
+ 		$EBIN   -p IPV6 --ip6-proto ipv6-icmp -j ACCEPT
+ 		$EBOUT  -p IPV6 --ip6-proto ipv6-icmp -j ACCEPT
+		$EBFIN  --logical-out pppoe-wan -p IPV6 -j ACCEPT
+		$EBFOUT --logical-in  pppoe-wan -p IPV6 -j ACCEPT
 	fi
-	ebtables -t filter -A FORWARD -i "$lif" -p IPV6 -j $dropTarget
-	ebtables -t filter -A FORWARD -o "$lif" -p IPV6 -j $dropTarget
+	$EBIN -p IPV6 -j $dropTarget
+	$EBOUT -p IPV6 -j $dropTarget
+	$EBFIN -p IPV6 -j $dropTarget
+	$EBFOUT -p IPV6 -j $dropTarget
+	cleanEbtablesChainsForPrefix guest $lif
 }
 
 restrict_local_interface() {
@@ -1254,62 +1232,55 @@ restrict_local_interface() {
 	local allowed_servers="$7"
 	local dropTarget="$8"
 	[ -z $dropTarget ] && dropTarget=DROP
+	createEbtablesChainsForPrefix local $lif DROP	#Drop anything not explicitely allowed
+	local EBIN EBFIN EBOUT EBFOUT
+	constructChainAppendCommandsFromPrefix local $lif EBIN EBFIN EBOUT EBFOUT
 	if [ -n "$allowed_ips" ]; then
 		local needs_routing="0"
 		if [ -n "$forbidden_ips" ]; then
 			for forbidden_ip in $forbidden_ips ; do
-				forbid_ip_for_interface $forbidden_ip "$lif" $router_ip $lan_netmask $dropTarget
+				forbid_ip_for_interface $forbidden_ip local $lif $router_ip $lan_netmask $dropTarget
 			done
 		fi
 		for allowed_ip in $allowed_ips ; do
-			allow_ip_for_interface $allowed_ip "$lif" $router_ip $lan_netmask \
+			allow_ip_for_interface $allowed_ip local $lif $router_ip $lan_netmask \
 				|| needs_routing="1"
 		done
 		if [ "$needs_routing" = "1" ]; then
 			echo "$lif needs routing because of non-local allowed ip, thus allowing arp to $router_ip"
 			if [ "$is_router" != "0" ]; then
-				ebtables -t filter -A INPUT -i "$lif" -p ARP --arp-ip-dst $router_ip \
-					-j ACCEPT
+				$EBIN -p ARP --arp-ip-dst $router_ip -j ACCEPT
 			else
-				ebtables -t filter -A FORWARD -i "$lif" -p ARP \
-					--arp-ip-dst "$router_ip" -j ACCEPT
-				ebtables -t filter -A FORWARD -o "$lif" -p ARP \
-					--arp-ip-src "$router_ip" -j ACCEPT
+				$EBFIN -p ARP --arp-ip-dst $router_ip -j ACCEPT
+				$EBFOUT -p ARP --arp-ip-src $router_ip -j ACCEPT
 			fi
 		fi
 	else
-		ebtables -t filter -A INPUT -i "$lif" -p ARP \
-			--arp-ip-dst "$router_ip/$lan_netmask" -j ACCEPT
-		ebtables -t filter -A FORWARD -i "$lif" -p ARP \
-			--arp-ip-dst "$router_ip/$lan_netmask" -j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p ARP \
-			--arp-ip-src "$router_ip/$lan_netmask"-j ACCEPT
-		ebtables -t filter -A FORWARD -i "$lif" -p IPV4 \
-			--ip-dst "$router_ip/$lan_netmask" -j ACCEPT
-		ebtables -t filter -A FORWARD -o "$lif" -p IPV4 \
-			--ip-src "$router_ip/$lan_netmask" -j ACCEPT 
+		$EBIN   -p ARP --arp-ip-dst "$router_ip/$lan_netmask" -j ACCEPT
+		$EBFIN  -p ARP --arp-ip-dst "$router_ip/$lan_netmask" -j ACCEPT
+		$EBFOUT -p ARP --arp-ip-src "$router_ip/$lan_netmask"-j ACCEPT
+		$EBFIN  -p IPV4 --ip-dst "$router_ip/$lan_netmask" -j ACCEPT
+		$EBFOUT -p IPV4 --ip-src "$router_ip/$lan_netmask" -j ACCEPT
 	fi
 	if [ -n "$allowed_servers" ]; then
 		for allowed_server in $allowed_servers ; do
-			allow_server_for_interface $allowed_server "$lif" $router_ip $lan_netmask
+			allow_server_for_interface $allowed_server local $lif $router_ip $lan_netmask
 		done
 	fi
-	#Allow broadcast and directed arp
-	#ebtables -t filter -A INPUT -i "$lif" -p ARP -j ACCEPT
-	#ebtables -t filter -A FORWARD -i "$lif" -p ARP -j ACCEPT
 	#Allow DHCP broadcast and directed
-	ebtables -t filter -A INPUT -i "$lif" -p IPV4 --ip-proto udp \
-		--ip-dport 67 -j ACCEPT
-	ebtables -t filter -A FORWARD -i "$lif" -p IPV4 --ip-proto udp \
-		--ip-dport 67 -j ACCEPT
-	ebtables -t filter -A FORWARD -o "$lif" -p IPV4 --ip-proto udp \
-		--ip-sport 67 -j ACCEPT
+	$EBIN   -p IPV4 --ip-proto udp --ip-dport 67 -j ACCEPT
+	$EBOUT  -p IPV4 --ip-proto udp --ip-sport 67 -j ACCEPT
+	$EBFIN  -p IPV4 --ip-proto udp --ip-dport 67 -j ACCEPT
+	$EBFOUT -p IPV4 --ip-proto udp --ip-sport 67 -j ACCEPT
 	#Allow EAPOL for wifi authentication
-	ebtables -A INPUT -i "$lif" -p 0x888e -j ACCEPT
-	#Drop anything else
-	ebtables -t filter -A FORWARD -i "$lif" -j $dropTarget
-	ebtables -t filter -A FORWARD -o "$lif" -j $dropTarget
-	ebtables -t filter -A INPUT -i "$lif" -j $dropTarget
+	$EBIN   -p 0x888e -j ACCEPT
+	cleanEbtablesChainsForPrefix local $lif
+	if [ "$dropTarget" = "logAndDrop" ]; then
+		$EBIN   -j logAndDrop
+		$EBFIN  -j logAndDrop
+		$EBOUT  -j logAndDrop
+		$EBFOUT -j logAndDrop
+	fi
 }
 
 restrict_censored_interface() {
@@ -1321,16 +1292,18 @@ restrict_censored_interface() {
 	local forbidden_ips="$6"
 	local dropTarget="$7"
 	[ -z $dropTarget ] && dropTarget=DROP
+	createEbtablesChainsForPrefix censored $lif ACCEPT
 	if [ -n "$forbidden_ips" ]; then
 		if [ -n "$allowed_ips" ]; then
 			for allowed_ip in $allowed_ips ; do
-				allow_ip_for_interface $allowed_ip "$lif" $router_ip $lan_netmask
+				allow_ip_for_interface $allowed_ip censored $lif $router_ip $lan_netmask
 			done
 		fi
 		for forbidden_ip in $forbidden_ips ; do
-			forbid_ip_for_interface $forbidden_ip "$lif" $router_ip $lan_netmask $dropTarget
+			forbid_ip_for_interface $forbidden_ip censored $lif $router_ip $lan_netmask $dropTarget
 		done
 	fi
+	cleanEbtablesChainsForPrefix censored $lif
 }
 
 check_guest_or_local_or_censored_network() { # network, not wifi!
