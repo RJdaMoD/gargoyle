@@ -19,3 +19,5 @@ hostsStr.ActiveConx="Aktive TCP Verb.";
 hostsStr.RecentConx="Kürzliche TCP Verb.";
 hostsStr.UDPConx="UDP Verb.";
 hostsStr.Band="Band";
+hostsStr.Channel="Kanal";
+
