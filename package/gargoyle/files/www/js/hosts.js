@@ -110,8 +110,8 @@ function resetVariables()
 	if(apFound)
 	{
 		document.getElementById("wifi_data").style.display="block";
-		var columnNames=[UI.HsNm, hostsStr.HostIP, hostsStr.HostMAC, hostsStr.Band, "TX "+hostsStr.Bitrate, "RX "+hostsStr.Bitrate, hostsStr.Signal ];
-		var table = createTable(columnNames, parseWifi(arpHash, wirelessDriver, wifiLines, "AP"), "wifi_table", false, false);
+		var columnNames=[UI.HsNm, hostsStr.HostIP, hostsStr.HostMAC, "AP", 'SSID', hostsStr.Channel, "TX "+hostsStr.Bitrate, "RX "+hostsStr.Bitrate, hostsStr.Signal ];
+		var table = createTable(columnNames, parseWifi(arpHash, wifiLines, "AP"), "wifi_table", false, false);
 		var tableContainer = document.getElementById('wifi_table_container');
 		if(tableContainer.firstChild != null)
 		{
@@ -128,8 +128,8 @@ function resetVariables()
 	if(staFound)
 	{
 		document.getElementById("client_wifi_data").style.display="block";
-		var columnNames=["AP SSID", "AP IP", "AP MAC", hostsStr.Band, "TX "+hostsStr.Bitrate, "RX "+hostsStr.Bitrate, hostsStr.Signal ];
-		var table = createTable(columnNames, parseWifi(arpHash, wirelessDriver, wifiClientLines, "STA"), "client_wifi_table", false, false);
+		var columnNames=["AP SSID", "AP IP", "AP MAC", hostsStr.Channel, "TX "+hostsStr.Bitrate, "RX "+hostsStr.Bitrate, hostsStr.Signal ];
+		var table = createTable(columnNames, parseWifi(arpHash, wifiClientLines, "STA"), "client_wifi_table", false, false);
 		var tableContainer = document.getElementById('client_wifi_table_container');
 		if(tableContainer.firstChild != null)
 		{
@@ -273,9 +273,9 @@ function sort2dStrArr(arr, testIndex)
 	arr.sort(str2dSort);
 }
 
-function parseWifi(arpHash, wirelessDriver, lines, apsta)
+function parseWifi(arpHash, lines, apsta)
 {
-	if(wirelessDriver == "" || lines.length == 0) { return []; }
+	if(lines.length == 0) { return []; }
 
 	//Mapping of WLANs to ESSIDs and MACs
 	var wifLines = wlanLines.slice(0);
@@ -311,7 +311,7 @@ function parseWifi(arpHash, wirelessDriver, lines, apsta)
 				[whost[1], "0", "0"],
 				[whost[0], whost[2], whost[1], whost[3], whost[4], whost[5]]
 				];
-		var mbs = wirelessDriver == "broadcom" ? macBitSig[0] : macBitSig[1];
+		var mbs = whost.length < 6 ? macBitSig[0] : macBitSig[1];
 		mbs[0] = (mbs[0]).toUpperCase();
 		mbs[1] = mbs[1] + " Mbps";
 
@@ -353,18 +353,35 @@ function parseWifi(arpHash, wirelessDriver, lines, apsta)
 		if(mbs.length > 3)
 		{
 			mbs[3] = mbs[3] + " Mbps";
-			for(x = 0; x < wifLines.length; x++)
+			if(apsta == "AP")
 			{
-				if(mbs[5] == wifLines[x][0] && wifLines[x][3] == "guest")
+				var [wifiDevice, apName] = mbs[5].split(/@/);
+				for(x = 0; x < wifLines.length; x++)
 				{
-					mbs[4] = mbs[4] + " (" + basicS.GNet + ")";
+					if(wifiDevice == wifLines[x][0] && wifLines[x][3] == "guest")
+					{
+						mbs[4] = mbs[4] + " (" + basicS.GNet + ")";
+						var ssid = wifLines[x][1];
+						break;
+					}
 				}
+				wifiTableData.push( [ hostname, ip, mbs[0], apName, ssid, mbs[4], mbs[1], mbs[3], mbs[2] ] );
 			}
-			wifiTableData.push( [ hostname, ip, mbs[0], mbs[4], mbs[1], mbs[3], mbs[2] ] );
+			else
+			{
+				wifiTableData.push( [ hostname, ip, mbs[0], mbs[4], mbs[1], mbs[3], mbs[2] ] );
+			}
 		}
 		else
 		{
-			wifiTableData.push( [ hostname, ip, mbs[0], "-", mbs[1], "-", mbs[2] ] );
+			if(apsta == "AP")
+			{
+				wifiTableData.push( [ hostname, ip, mbs[0], "-", "-", "-", mbs[1], "-", mbs[2] ] );
+			}
+			else
+			{
+				wifiTableData.push( [ hostname, ip, mbs[0], "-", mbs[1], "-", mbs[2] ] );
+			}
 		}
 	}
 	sort2dStrArr(wifiTableData, 1);
