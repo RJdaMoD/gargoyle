@@ -26,7 +26,8 @@ for host in $(echo $HOSTNAME; uci -q get network.globals.managed_aps); do
 	if [ $host != $HOSTNAME ]; then
 		prefix="openssh-ssh -o ControlMaster=auto -o ControlPath=/tmp/ssh-control-%C -o ControlPersist=30 $host"
 	fi
-	cat <<EOF | $prefix sh -s >/tmp/wifiStatus.${host#@} &
+	fileName=/tmp/wifiStatus.${host#@}
+	cat <<EOF | { if flock -xn 3; then cat /dev/null >$fileName; $prefix sh -s >&3; else flock -x 3; fi } 3>>$fileName &
 iwinfo | awk -v HOSTNAME=\$HOSTNAME '/^wlan/ { printf "wlanLines.push(\""\$1"@"HOSTNAME" "} /ESSID:/ {gsub(/"/,"",\$3); printf ""\$3" "} /Access Point:/ {printf ""\$3" "} /Mode: .* Channel: / { print ""\$4"\");" }'
 if [ -e /lib/wifi/broadcom.sh ] ; then
 	wl assoclist | awk '{print "wifiLines.push(\""\$0"\");"}'
@@ -44,7 +45,6 @@ EOF
 done
 wait
 cat /tmp/wifiStatus.*
-rm /tmp/wifiStatus.*
 
 
 echo "conntrackLines = new Array();"
