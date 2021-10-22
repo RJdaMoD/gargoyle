@@ -17,28 +17,36 @@ if [ -e /tmp/hosts/odhcpd ] ; then
 	cat /tmp/hosts/odhcpd | grep "^#" | awk '{print "dhcp6LeaseLines.push(\""$0"\");"}'
 fi
 
-echo "wlanLines = new Array();"
-iwinfo | awk '/^wlan/ { printf "wlanLines.push(\""$1" "} /ESSID:/ {gsub(/"/,"",$3); printf ""$3" "} /Access Point:/ {printf ""$3"\");" }'
 
+echo "wlanLines = new Array();"
 echo "wifiLines = new Array();"
 echo "wifiClientLines = new Array();"
+
+for host in $(echo $HOSTNAME; uci -q get network.globals.managed_aps); do
+	prefix=
+	if [ $host != $HOSTNAME ]; then
+		prefix="openssh-ssh -o ControlMaster=auto -o ControlPath=/tmp/ssh-control-%C -o ControlPersist=30 $host"
+	fi
+	cat <<EOF | $prefix sh -s >/tmp/wifiStatus.${host#@} &
+iwinfo | awk -v HOSTNAME=\$HOSTNAME '/^wlan/ { printf "wlanLines.push(\""\$1"@"HOSTNAME" "} /ESSID:/ {gsub(/"/,"",\$3); printf ""\$3" "} /Access Point:/ {printf ""\$3" "} /Mode: .* Channel: / { print ""\$4"\");" }'
 if [ -e /lib/wifi/broadcom.sh ] ; then
-	echo "var wirelessDriver=\"broadcom\";"
-	wl assoclist | awk '{print "wifiLines.push(\""$0"\");"}'
+	wl assoclist | awk '{print "wifiLines.push(\""\$0"\");"}'
 elif [ -e /lib/wifi/mac80211.sh ] && [ -e "/sys/class/ieee80211/phy0" ] ; then
-	echo "var wirelessDriver=\"mac80211\";"
-	aps=$( iwinfo | grep ESSID | awk ' { print $1 ; } ' )
-	if [ -n "$aps" ] ; then
-		for ap in $aps ; do
-			cli=$( iwinfo $ap i | grep Client )
-			hf=$( iwinfo $ap i | grep -o "Channel:.*" | awk '{if ($2 > 14) print "5GHz"; else print "2.4GHz";}' )
-			if [ -n "$cli" ] ; then arrayname="wifiClientLines" ; else arrayname="wifiLines" ; fi
-			iw $ap station dump | awk ' /^Station/ { printf "'$arrayname'.push(\""$2" " ;} /^[ \t]*signal:/ {printf ""$2" "} /tx.*bitrate:/ {printf ""$3" "} /rx.*bitrate:/ {printf ""$3" "} /autho/ {print "'$hf' '$ap'\");"}'
+	aps=\$( iwinfo | grep ESSID | awk ' { print \$1 } ' )
+	if [ -n "\$aps" ] ; then
+		for ap in \$aps ; do
+			cli=\$( iwinfo \$ap i | grep Client )
+			if [ -n "\$cli" ] ; then arrayname="wifiClientLines" ; else arrayname="wifiLines" ; fi
+			iw \$ap station dump | awk -v ap=\$ap -v HOSTNAME=\$HOSTNAME '/^Station/ { printf "'\$arrayname'.push(\""\$2" " ;} /\tsignal:/ {printf ""\$2" "} /tx bitrate:/ {printf ""\$3" "} /rx bitrate:/ {printf ""\$3" "} /autho/ {print ap"@"HOSTNAME"\");"}'
 		done
 	fi
-else
-	echo "var wirelessDriver=\"\";"
 fi
+EOF
+done
+wait
+cat /tmp/wifiStatus.*
+rm /tmp/wifiStatus.*
+
 
 echo "conntrackLines = new Array();"
 cat /proc/net/nf_conntrack | awk '{print "conntrackLines.push(\""substr($0,index($0,$3))"\");"}'
