@@ -729,6 +729,7 @@ isolate_guest_and_local_networks() {
 	$EBFILTER -F INPUT
 	$EBFILTER -F OUTPUT
 	$EBFILTER -X
+	$EBFILTER -X
 	$EBFILTER -N logAndDrop -P DROP
 	$EBFILTER -F logAndDrop
 	$EBFILTER -A logAndDrop --log-level warning \
@@ -1165,6 +1166,10 @@ restrict_guest_interface() {
 	local allowed_servers="$7"
 	local dropTarget="$8"
 	[ -z $dropTarget ] && dropTarget=DROP
+	local bridgeDev=br-lan
+	local ip6net_global=$(ip addr show $bridgeDev | grep "inet6 [^f]" | sed -E 's|^.*inet6 ([^ ]*) ([^ ]*) .*$|\1|')
+	local ip6net_local=$(uci get network.globals.ula_prefix)
+	local router_ip6_global router_ip6_local
 	createEbtablesChainsForPrefix guest $lif ACCEPT
 	local EBIN EBFIN EBOUT EBFOUT
 	constructChainAppendCommandsFromPrefix guest $lif EBIN EBFIN EBOUT EBFOUT
@@ -1208,13 +1213,20 @@ restrict_guest_interface() {
 	$EBIN   -p IPV4 --ip-dst "$router_ip/$lan_netmask" -j $dropTarget
 	$EBFIN  -p IPV4 --ip-dst "$router_ip/$lan_netmask" -j $dropTarget
 	$EBFOUT -p IPV4 --ip-src "$router_ip/$lan_netmask" -j $dropTarget
-	#no IPv6 in guest network unless we are router since we would have to check ip6 addresses otherwise
 	if [ "$is_router" = "1" ]; then
  		$EBIN   -p IPV6 --ip6-proto ipv6-icmp -j ACCEPT
  		$EBOUT  -p IPV6 --ip6-proto ipv6-icmp -j ACCEPT
-		$EBFIN  --logical-out pppoe-wan -p IPV6 -j ACCEPT
-		$EBFOUT --logical-in  pppoe-wan -p IPV6 -j ACCEPT
+		router_ip6_global=$(echo $ip6net_global | sed -E 's#/[0-9]+$##')
+		$EBIN   -p IPV6 --ip6-dst $router_ip6_global --ip6-proto udp --ip6-dport 53 -j ACCEPT
+		$EBOUT  -p IPV6 --ip6-src $router_ip6_global --ip6-proto udp --ip6-sport 53 -j ACCEPT
+		router_ip6_local=$(ip addr show $bridgeDev | grep $(echo $ip6net_local | sed -E 's#/[0-9]+$##') | sed -E 's|^.*inet6 ([^ ]*) ([^ ]*) .*$|\1|' | sed -E 's#/[0-9]+$##')
+		$EBIN   -p IPV6 --ip6-dst $router_ip6_local --ip6-proto udp --ip6-dport 53 -j ACCEPT
+		$EBOUT  -p IPV6 --ip6-src $router_ip6_local --ip6-proto udp --ip6-sport 53 -j ACCEPT
 	fi
+	$EBFIN  --logical-out $bridgeDev -p IPV6 --ip6-dst $ip6net_local -j $dropTarget
+	$EBFOUT --logical-in  $bridgeDev -p IPV6 --ip6-src $ip6net_local -j $dropTarget
+	$EBFIN  --logical-out $bridgeDev -p IPV6 --ip6-dst ! $ip6net_global -j ACCEPT
+	$EBFOUT --logical-in  $bridgeDev -p IPV6 --ip6-src ! $ip6net_global -j ACCEPT
 	$EBIN -p IPV6 -j $dropTarget
 	$EBOUT -p IPV6 -j $dropTarget
 	$EBFIN -p IPV6 -j $dropTarget
