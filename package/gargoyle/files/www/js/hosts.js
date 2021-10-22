@@ -118,7 +118,7 @@ function resetVariables()
 			tableContainer.removeChild(tableContainer.firstChild);
 		}
 		tableContainer.appendChild(table);
-        	reregisterTableSort('wifi_table', 's', 'p', 's', 's');
+		reregisterTableSort('wifi_table', 's', 'p', 's', 's', 's', 'i');
 	}
 	else
 	{
@@ -311,7 +311,7 @@ function parseWifi(arpHash, lines, apsta)
 				[whost[1], "0", "0"],
 				[whost[0], whost[2], whost[1], whost[3], whost[4], whost[5]]
 				];
-		var mbs = whost.length < 6 ? macBitSig[0] : macBitSig[1];
+		var mbs = whost.length < 5 ? macBitSig[0] : macBitSig[1];
 		mbs[0] = (mbs[0]).toUpperCase();
 		mbs[1] = mbs[1] + " Mbps";
 
@@ -355,17 +355,21 @@ function parseWifi(arpHash, lines, apsta)
 			mbs[3] = mbs[3] + " Mbps";
 			if(apsta == "AP")
 			{
-				var [wifiDevice, apName] = mbs[5].split(/@/);
+				var apName = mbs[4].split(/@/)[1];
 				for(x = 0; x < wifLines.length; x++)
 				{
-					if(wifiDevice == wifLines[x][0] && wifLines[x][3] == "guest")
+					if(mbs[4] == wifLines[x][0])
 					{
-						mbs[4] = mbs[4] + " (" + basicS.GNet + ")";
 						var ssid = wifLines[x][1];
+						var channel = wifLines[x][3];
+						if(wifLines[x][4] == "guest")
+						{
+							channel = channel + " (" + basicS.GNet + ")";
+						}
 						break;
 					}
 				}
-				wifiTableData.push( [ hostname, ip, mbs[0], apName, ssid, mbs[4], mbs[1], mbs[3], mbs[2] ] );
+				wifiTableData.push( [ hostname, ip, mbs[0], apName, ssid, channel, mbs[1], mbs[3], mbs[2] ] );
 			}
 			else
 			{
