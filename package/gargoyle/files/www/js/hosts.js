@@ -278,25 +278,7 @@ function parseWifi(arpHash, lines, apsta)
 	if(lines.length == 0) { return []; }
 
 	//Mapping of WLANs to ESSIDs and MACs
-	var wifLines = wlanLines.slice(0);
-	for(x = 0; x < wifLines.length; x++)
-	{
-		wifLines[x] = wifLines[x].split(/[\t ]+/);
-		var allWifiIfaceSections = uciOriginal.getAllSectionsOfType("wireless","wifi-iface");
-		for(wsecIndex = 0; wsecIndex < allWifiIfaceSections.length; wsecIndex++)
-		{
-			var sec = allWifiIfaceSections[wsecIndex];
-			if((uciOriginal.get("wireless",sec,"is_guest_network") == "1") && (uciOriginal.get("wireless",sec,"macaddr").toLowerCase() == wifLines[x][2].toLowerCase()))
-			{
-				wifLines[x].push("guest");
-				break;
-			}
-			else if(wsecIndex == allWifiIfaceSections.length-1)
-			{
-				wifLines[x].push("not guest");
-			}
-		}
-	}
+	var wifLines = wlanLines.map(s => s.split(/[\t ]+/));
 
 	//Host IP, Host MAC
 	var wifiTableData = [];
@@ -362,10 +344,6 @@ function parseWifi(arpHash, lines, apsta)
 					{
 						var ssid = wifLines[x][1];
 						var channel = wifLines[x][3];
-						if(wifLines[x][4] == "guest")
-						{
-							channel = channel + " (" + basicS.GNet + ")";
-						}
 						break;
 					}
 				}
