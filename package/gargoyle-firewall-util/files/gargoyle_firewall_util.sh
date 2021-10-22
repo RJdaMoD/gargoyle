@@ -1159,6 +1159,10 @@ restrict_guest_interface() {
 	else
 	  drop="jump $dropTarget"
 	fi
+	local bridgeDev=br-lan
+  local ip6net_global=$(ip addr show $bridgeDev | grep "inet6 [^f]" | sed -E 's|^.*inet6 ([^ ]*) ([^ ]*) .*$|\1|')
+  local ip6net_local=$(uci get network.globals.ula_prefix)
+  local router_ip6_global router_ip6_local
 	createNFTChainsForPrefix guest $lif
 	local NFIN NFFIN NFOUT NFFOUT
   constructChainAppendCommandsFromPrefix $chain_prefix $lif NFIN NFFIN NFOUT NFFOUT
@@ -1201,9 +1205,17 @@ restrict_guest_interface() {
 	if [ "$is_router" = "1" ]; then
 	  $NFIN ip6 nexthdr icmpv6 accept
 	  $NFOUT ip6 nexthdr icmpv6 accept
-	  $NFFIN oifname pppoe-wan meta protocol ip6 accept
-	  $NFFOUT iifname pppoe-wan meta protocol ip6 accept
+	  router_ip6_global=$(echo $ip6net_global | sed -E 's#/[0-9]+$##')
+	  $NFIN ip6 daddr $router_ip6_global udp dport 53 accept
+    $NFOUT ip6 saddr $router_ip6_global udp sport 53 accept
+    router_ip6_local=$(ip addr show $bridgeDev | grep $(echo $ip6net_local | sed -E 's#/[0-9]+$##') | sed -E 's|^.*inet6 ([^ ]*) ([^ ]*) .*$|\1|' | sed -E 's#/[0-9]+$##')
+    $NFIN ip6 daddr $router_ip6_local udp dport 53 accept
+    $NFOUT ip6 saddr $router_ip6_local udp sport 53 accept
 	fi
+  $NFFIN oifname $bridgeDev ip6 daddr $ip6net_local $drop
+  $NFFOUT iifname $bridgeDev ip6 saddr $ip6net_local $drop
+  $NFFIN oifname $bridgeDev ip6 daddr != $ip6net_global accept
+  $NFFOUT iifname $bridgeDev ip6 saddr != $ip6net_global accept
 	$NFIN meta protocol ip6 $drop
   $NFOUT meta protocol ip6 $drop
   $NFFIN meta protocol ip6 $drop
