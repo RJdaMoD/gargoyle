@@ -3029,7 +3029,7 @@ function reregisterTableSort()
     TSort_Classes = new Array ('odd', 'even'); // table sorting zebra row support
     var args = Array.prototype.slice.call(arguments);
     TSort_Data = args;
-    TSort_Initial = '0A';
+    TSort_Cookie = args[0] + "_sorting";
     tsRegister();
     tsSetTable (args[0]);
     tsInit();
