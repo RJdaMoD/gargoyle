@@ -62,6 +62,9 @@ function reloadVariables()
 }
 function resetVariables()
 {
+	dhcpLeaseLines.map(s => s.split(/[\t ]+/)).forEach(x => { if(x[3] != "*") { ipToHostname[x[2]] = x[3]; }});
+	dhcp6LeaseLines.map(s => s.split(/[\t ]+/)).forEach(x => { if(x[1] != "*") { ipToHostname[x[0]] = x[1]; }});
+	hostsLines.map(s => s.split(/[\t ]+/)).forEach(x => ipToHostname[x[0]] = x[1]);
 	if(uciOriginal.get("dhcp", "lan", "ignore") != "1")
 	{
 		document.getElementById("dhcp_data").style.display="block";
