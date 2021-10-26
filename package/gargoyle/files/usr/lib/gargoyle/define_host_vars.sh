@@ -18,12 +18,6 @@ if [ -e /tmp/hosts/odhcpd ] ; then
 fi
 
 
-echo "hostsLines = new Array();"
-if [ -e /etc/hosts ]; then
-	cat /etc/hosts | awk '/^[0-9a-fA-F:]/{print "hostsLines.push(\""$1" "$2"\");"}'
-fi
-
-
 echo "wlanLines = new Array();"
 echo "wifiLines = new Array();"
 echo "wifiClientLines = new Array();"
