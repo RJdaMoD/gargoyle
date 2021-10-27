@@ -12,7 +12,7 @@
 <script>
 <%
 	echo "var blocklistlines = new Array();"
-	cat /plugin_root/adblock/block.hosts | awk '{print "blocklistlines.push(\""$2"\");"}'
+	cat /plugin_root/adblock/block.hosts | awk '/^[0-9]{1,3}(\.[0-9]{1,3}){3}/ {print "blocklistlines.push(\""$2"\");"}'
 	echo "var blacklistlines = new Array();"
 	cat /plugin_root/usr/lib/adblock/black.list | awk '{print "blacklistlines.push(\""$0"\");"}'
 	echo "var whitelistlines = new Array();"
