@@ -6,3 +6,6 @@ config adblock 'config'
 	option exend '192.168.1.255'
 	option endpoint4 '0.0.0.0'
 	option endpoint6 '::'
+	list adblock_src 'https://winhelp2002.mvps.org/hosts.txt'
+	list adblock_src 'https://adaway.org/hosts.txt'
+
