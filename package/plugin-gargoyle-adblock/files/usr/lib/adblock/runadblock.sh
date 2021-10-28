@@ -13,6 +13,7 @@ END_RANGE=`uci get adblock.config.exend`
 
 # Redirect endpoint
 ENDPOINT_IP4=`uci get adblock.config.endpoint4`
+ENDPOINT_IP6=`uci get adblock.config.endpoint6`
 
 #Change the cron command to what is comfortable, or leave as is
 CRON="0 4 * * 0 sh /plugin_root/usr/lib/adblock/runadblock.sh"
@@ -102,8 +103,13 @@ update_blocklist()
 
 	#Download and process the files needed to make the lists
 	logger -t ADBLOCK Retrieving ad lists from remote source
-	ewget http://winhelp2002.mvps.org/hosts.txt 2>/dev/null | awk -v r="$ENDPOINT_IP4" '{sub(/^0.0.0.0/, r)} $0 ~ "^"r' > /tmp/block.build.list
-	ewget https://adaway.org/hosts.txt 2>/dev/null |awk -v r="$ENDPOINT_IP4" '{sub(/^127.0.0.1/, r)} $0 ~ "^"r' >> /tmp/block.build.list
+	rm /tmp/block.build.list
+	for url in $(uci get adblock.config.adblock_src); do
+		ewget "$url" 2>/dev/null | \
+			awk -v r4="$ENDPOINT_IP4" -v r6="$ENDPOINT_IP6" \
+				'/^[0-9]{1,3}(\.[0-9]{1,3}){3}/ { if($2!="localhost") print r4" "$2"\n"r6" "$2 }' \
+				>> /tmp/block.build.list
+	done
 
 	#Check we got a hosts file
 	if [ -s "/tmp/block.build.list" ]
