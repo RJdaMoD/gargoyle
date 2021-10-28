@@ -300,13 +300,12 @@ function parseWifi(arpHash, lines, apsta)
 		var toHexTwo = function(num) { var ret = parseInt(num).toString(16).toUpperCase(); ret= ret.length < 2 ? "0" + ret : ret.substr(0,2); return ret; }
 
 		var sig = parseInt(mbs[2]);
-		if(sig > 0) { sig = -sig; } // some ac-frontends don't give the sign, and it's unlikely to have signals above 0 dBm (1 mW !!)
 		var color = sig < -80  ? "#AA0000" : "";
 		color = sig >= -80 && sig < -70 ? "#AA" + toHexTwo(170*((sig+80)/10.0)) + "00" : color;
 		color = sig >= -70 && sig < -60 ? "#" + toHexTwo(170-(170*(sig+70)/10.0)) + "AA00" : color;
 		color = sig >= -60 ? "#00AA00" : color;
 		var sigSpan = document.createElement("span");
-		sigSpan.appendChild(document.createTextNode(sig + " dBm"));
+		sigSpan.appendChild(document.createTextNode(mbs[2] + " dBm"));
 		sigSpan.style.color = color;
 		mbs[2] = sigSpan;
 
