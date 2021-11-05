@@ -892,7 +892,6 @@ decompose_ip_and_port() {
 		eval "$mask_var=$(echo $ip_and_port | sed '/^[^/]*$/d;s|^\[.*/||;s/\].*$//')"
 		eval "$port_var=$(echo $ip_and_port | sed '/^\[.*\]$/d;s/^\[.*\]://;s/-/:/')"
 	else
-#		echo "Invalid ip+port: $ip_and_port"
 		return 1
 	fi
 	return 0
@@ -905,13 +904,13 @@ lookup_host_addresses() {
 decompose_host_address_and_call_proc() {
 	local address="$1"
 	shift
-    local proc="$1"
-    shift
+	local proc="$1"
+	shift
 	local rc=0
 	if [ $(echo $address | grep -E "^/.*\.sh$" | wc -l) -eq 1 ]; then
-        echo "Executing $address..."
-        sh $address
-        return 0
+		echo "Executing $address..."
+		sh $address
+		return 0
 	elif [ $(echo $address | grep -E "^/" | wc -l) -eq 1 ]; then
 		for host in $(cat $address | grep -E "^ *(0\.0\.0\.0 |:: )? *[^ ]+ *$" \
 				| sed -E 's/^ *(0\.0\.0\.0 |:: )? *([^ ]+) *$/\2/' | sort | uniq); do
