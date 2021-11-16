@@ -1,0 +1,9 @@
+					<div class="row form-group">
+						<span class="col-xs-7" id="access_point_confim_host_key_header_text">
+							<%~ canYouConfirmHostKey %>
+						</span>
+					</div>
+					<div class="row form-group">
+						<span class="col-xs-7" id="access_point_confim_host_key_container"></span>
+					</div>
+

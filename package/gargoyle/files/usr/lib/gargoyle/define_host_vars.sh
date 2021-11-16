@@ -21,14 +21,22 @@ echo "wlanLines = new Array();"
 echo "wifiLines = new Array();"
 echo "wifiClientLines = new Array();"
 
-for host in $(echo $HOSTNAME; uci -q get network.globals.managed_aps); do
+keep_alive="$(uci -q get ap_management_gargoyle.ap_management.connection_keep_alive || echo 30)"
+hosts_to_query="$(echo $HOSTNAME; uci -q get ap_management_gargoyle.ap_management.managed_aps)"
+
+for host in $hosts_to_query; do
 	prefix=
 	if [ $host != $HOSTNAME ]; then
-		prefix="openssh-ssh -o ControlMaster=auto -o ControlPath=/tmp/ssh-control-%C -o ControlPersist=30 $host"
+		prefix="openssh-ssh -o BatchMode=yes -o ControlMaster=auto -o ControlPath=/tmp/ssh-control-%C \
+		        -o ControlPersist=$keep_alive $host"
 	fi
 	fileName=/tmp/wifiStatus.${host#@}
 	cat <<EOF | { if flock -xn 3; then cat /dev/null >$fileName; $prefix sh -s >&3; else flock -x 3; fi } 3>>$fileName &
-iwinfo | awk -v HOSTNAME=\$HOSTNAME '/^wlan/ { printf "wlanLines.push(\""\$1"@"HOSTNAME" "} /ESSID:/ {gsub(/"/,"",\$3); printf ""\$3" "} /Access Point:/ {printf ""\$3" "} /Mode: .* Channel: / { print ""\$4"\");" }'
+iwinfo | awk -v HOSTNAME=\$HOSTNAME '
+  /^wlan/ { printf "wlanLines.push(\""\$1"@"HOSTNAME" " }
+  /ESSID:/ { gsub(/"/,"",\$3); printf ""\$3" " }
+  /Access Point:/ { printf ""\$3" " }
+  /Mode: .* Channel: / { print ""\$4"\");" }'
 if [ -e /lib/wifi/broadcom.sh ] ; then
 	wl assoclist | awk '{print "wifiLines.push(\""\$0"\");"}'
 elif [ -e /lib/wifi/mac80211.sh ] && [ -e "/sys/class/ieee80211/phy0" ] ; then
@@ -37,14 +45,30 @@ elif [ -e /lib/wifi/mac80211.sh ] && [ -e "/sys/class/ieee80211/phy0" ] ; then
 		for ap in \$aps ; do
 			cli=\$( iwinfo \$ap i | grep Client )
 			if [ -n "\$cli" ] ; then arrayname="wifiClientLines" ; else arrayname="wifiLines" ; fi
-			iw \$ap station dump | awk -v ap=\$ap -v HOSTNAME=\$HOSTNAME '/^Station/ { printf "'\$arrayname'.push(\""\$2" " ;} /\tsignal:/ {printf ""\$2" "} /tx bitrate:/ {printf ""\$3" "} /rx bitrate:/ {printf ""\$3" "} /autho/ {print ap"@"HOSTNAME"\");"}'
+      iw \$ap station dump | awk -v ap=\$ap -v HOSTNAME=\$HOSTNAME '
+        BEGIN {signal=0;txBitrate=0;rxBitrate=0}
+        /^Station/ {
+          if(mac) {
+            print "'\$arrayname'.push(\""mac" "signal" "txBitrate" "rxBitrate" "ap"@"HOSTNAME"\");"
+          }
+          mac=\$2; signal=0; txBitrate=0; rxBitrate=0 }
+        /\tsignal:/ { signal=\$2 }
+        /tx bitrate:/ { txBitrate=\$3 }
+        /rx bitrate:/ { rxBitrate=\$3 }
+        END {
+          if(mac) {
+            print "'\$arrayname'.push(\""mac" "signal" "txBitrate" "rxBitrate" "ap"@"HOSTNAME"\");"
+          }
+        }'
 		done
 	fi
 fi
 EOF
 done
 wait
-cat /tmp/wifiStatus.*
+for host in $hosts_to_query; do
+	cat /tmp/wifiStatus.${host#@}
+donf
 
 
 echo "conntrackLines = new Array();"
