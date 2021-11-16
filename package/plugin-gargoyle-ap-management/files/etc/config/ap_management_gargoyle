@@ -1,0 +1,3 @@
+config ap_management 'ap_management'
+	option connection_keep_alive '30'
+#	list managed_aps 'ap_name'

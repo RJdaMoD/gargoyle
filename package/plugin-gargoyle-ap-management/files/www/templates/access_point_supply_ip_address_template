@@ -1,0 +1,11 @@
+					<div class="row form-group">
+						<span class="col-xs-7" id="access_point_supply_ip_address_header_text">
+							<%~ supplyIpAddressOfAccessPoint %>
+						</span>
+					</div>
+					<div class="row form-group">
+						<span class="col-xs-7" id="access_point_supply_ip_address_container">
+							<input type="text" id="access_point_ip_address" class="form-control" size="15"
+										 pattern="([0-9]{1,2}|[01][0-9]{2}|2[0-4][0-9]|25[0-5])(\.([0-9]{1,2}|[01][0-9]{2}|2[0-4][0-9]|25[0-5])){3}"/>
+						</span>
+					</div>
