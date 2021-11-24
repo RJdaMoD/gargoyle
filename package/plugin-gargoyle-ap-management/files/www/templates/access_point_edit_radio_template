@@ -1,0 +1,69 @@
+					<div class="row form-group">
+						<label class="col-xs-6" id='edit_radio_ap_label' for='edit_radio_ap'>
+							<%~ ap_management.ap %>
+						</label>
+						<span class="col-xs-6">
+							<input type='text' id='edit_radio_ap' class='form-control' disabled="disabled"/>
+						</span>
+					</div>
+					<div class="row form-group">
+						<label class="col-xs-6" id='edit_radio_radio_label' for='edit_radio_radio'>
+							<%~ ap_management.radio %>
+						</label>
+						<span class="col-xs-6">
+							<input type='text' id='edit_radio_radio' class='form-control' disabled="disabled"/>
+						</span>
+					</div>
+					<div class="row form-group">
+						<label class="col-xs-6" id='edit_radio_channel_band_label' for='edit_radio_channel_band'>
+							<%~ ap_management.channelBand %>
+						</label>
+						<span class="col-xs-6">
+							<select id='edit_radio_channel_band' class='form-control'
+											onchange="checkAllowedOptionsInRadioEditModal(this)">
+							</select>
+						</span>
+					</div>
+					<div class="row form-group">
+						<label class="col-xs-6" id='edit_radio_channel_label' for='edit_radio_channel'>
+							<%~ ap_management.channel %>
+						</label>
+						<span class="col-xs-6">
+							<select id='edit_radio_channel' class='form-control'
+											onchange="checkAllowedOptionsInRadioEditModal(this)">
+							</select>
+						</span>
+					</div>
+					<div class="row form-group">
+						<label class="col-xs-6" id='edit_radio_frequency_label' for='edit_radio_frequency'>
+							<%~ ap_management.frequency %> (MHz)
+						</label>
+						<span class="col-xs-6">
+							<input type='text' id='edit_radio_frequency' class='form-control' disabled="disabled"/>
+						</span>
+					</div>
+					<div class="row form-group">
+						<label class="col-xs-6" id='edit_radio_channel_mode_label' for='edit_radio_channel_mode'>
+							<%~ ap_management.channelMode %>
+						</label>
+						<span class="col-xs-6">
+							<select id='edit_radio_channel_mode' class='form-control'></select>
+						</span>
+					</div>
+					<div class="row form-group">
+						<label class="col-xs-6" id='edit_radio_tx_power_label' for='edit_radio_tx_power'>
+							<%~ ap_management.txPower %> (dBm)
+						</label>
+						<span class="col-xs-6">
+							<input type='number' id='edit_radio_tx_power' class='form-control' maxlength="2" min="0"/>
+							<span id="edit_radio_tx_power_max"></span>
+						</span>
+					</div>
+					<div class="row form-group">
+						<label class="col-xs-6" id='edit_radio_country_label' for='edit_radio_country'>
+							<%~ ap_management.country %>
+						</label>
+						<span class="col-xs-6">
+							<input type='text' id='edit_radio_country' class='form-control' maxlength="2"/>
+						</span>
+					</div>
