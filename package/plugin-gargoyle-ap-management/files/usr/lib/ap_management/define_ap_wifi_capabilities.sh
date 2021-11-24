@@ -11,13 +11,21 @@ fi
 cmd="$(cat <<- EOC
 firstRadio=true
 echo "["
-for phy in \$(iw list | awk '/^Wiphy /{print \$2}'); do
+for radio in \$(uci show wireless | grep wifi-device | sed -E 's/^wireless\.(.*)=wifi-device\$/\1/'); do
+	radioPath=\$(uci get wireless.\$radio.path)
+	if [ \$(echo \$radioPath | grep "pci0000:00" | wc -l) = '1' ]; then
+		phy=\$(ls -1 /sys/bus/pci/devices/\$(echo \$radioPath | sed -E 's|^.*pci0000:00/(.*)\$|\1|')/ieee80211)
+	elif [ \$(echo \$radioPath | grep "^platform/" | wc -l) = '1' ]; then
+		phy=\$(ls -1 /sys/bus/platform/devices/\$(echo \$radioPath | sed -E 's|^platform/(.*)\$|\1|')/ieee80211)
+	else
+		continue
+	fi
 	if \$firstRadio; then
 		firstRadio=false
 	else
 		echo ","
 	fi
-	echo "	{\"radio\":\"radio\${phy#phy}\", \"bands\":["
+	echo "	{\"radio\":\"\$radio\", \"phy\":\"\$phy\", \"bands\":["
 	iw phy \$phy channels | awk '
 		function printChannel(lastChannel) {
 			if(channel) {
