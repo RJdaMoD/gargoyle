@@ -17,6 +17,7 @@ originalManagedAPs = [];
 <%
 	echo "currentHostName = '$HOSTNAME';"
 	/usr/lib/ap_management/define_ap_wifi_config.sh originalManagedAPs
+	/usr/lib/ap_management/define_ap_wifi_capabilities.sh originalManagedAPs
 %>
 //-->
 </script>
@@ -25,7 +26,7 @@ originalManagedAPs = [];
 <h1 class="page-header"><%~ ap_management.apManagement %></h1>
 
 <div class="row">
-	<div class="col-lg-6">
+	<div class="col-lg-5">
 		<div class="panel panel-default">
 			<div class="panel-heading">
 				<h3 class="panel-title"><%~ ap_management.aps %></h3>
@@ -51,6 +52,25 @@ originalManagedAPs = [];
 			</div>
 		</div>
 	</div>
+	<div class="col-lg-7">
+		<div class="panel panel-default">
+			<div class="panel-heading">
+				<h3 class="panel-title"><%~ ap_management.radios %></h3>
+			</div>
+			<div class="panel-body">
+
+				<div id="radios_table_heading_container" class="row form-group">
+					<span class="col-xs-12" style="text-decoration:underline">
+						<%~ ap_management.managedRadios %>:
+					</span>
+				</div>
+
+				<div class="row form-group">
+					<div id="radio_table_container" class="table-responsive col-xs-12"></div>
+				</div>
+			</div>
+		</div>
+	</div>
 </div>
 
 <div id="firefox3_bug_correct" style="display:none">
@@ -63,12 +83,12 @@ originalManagedAPs = [];
 </div>
 
 <div class="modal fade" tabindex="-1" role="dialog" id="access_point_supply_ip_address_modal" aria-hidden="true"
-aria-labelledby="access_point_supply_ip_address_modal_title">
+		aria-labelledby="access_point_supply_ip_address_modal_title">
 	<div class="modal-dialog modal-lg" role="document">
 		<div class="modal-content">
 			<div class="modal-header">
 				<h3 id="access_point_supply_ip_address_modal_title" class="panel-title">
-					<%~ supplyIpAddress %>
+					<%~ ap_management.supplyIpAddress %>
 				</h3>
 			</div>
 			<div class="modal-body">
@@ -81,12 +101,12 @@ aria-labelledby="access_point_supply_ip_address_modal_title">
 </div>
 
 <div class="modal fade" tabindex="-1" role="dialog" id="access_point_confirm_host_key_modal" aria-hidden="true"
-aria-labelledby="access_point_confirm_host_key_modal_title">
+		aria-labelledby="access_point_confirm_host_key_modal_title">
 	<div class="modal-dialog modal-lg" role="document">
 		<div class="modal-content">
 			<div class="modal-header">
 				<h3 id="access_point_confirm_host_key_modal_title" class="panel-title">
-					<%~ confirmAPhostKey %>
+					<%~ ap_management.confirmAPhostKey %>
 				</h3>
 			</div>
 			<div class="modal-body">
@@ -104,13 +124,31 @@ aria-labelledby="access_point_confirm_host_key_modal_title">
 		<div class="modal-content">
 			<div class="modal-header">
 				<h3 id="access_point_enter_password_modal_title" class="panel-title">
-					<%~ enterPasswordForSshKeyTransfer %>
+					<%~ ap_management.enterPasswordForSshKeyTransfer %>
 				</h3>
 			</div>
 			<div class="modal-body">
 				<%in templates/access_point_enter_password_template %>
 			</div>
 			<div class="modal-footer" id="access_point_enter_password_modal_button_container">
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="modal fade" tabindex="-1" role="dialog" id="access_point_edit_radio_modal"
+		aria-hidden="true" aria-labelledby="access_point_edit_radio_modal_title">
+	<div class="modal-dialog modal-lg" role="document">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h3 id="access_point_edit_radio_modal_title" class="panel-title">
+					<%~ ap_management.editRadio %>
+				</h3>
+			</div>
+			<div class="modal-body">
+				<%in templates/access_point_edit_radio_template %>
+			</div>
+			<div class="modal-footer" id="access_point_edit_radio_modal_button_container">
 			</div>
 		</div>
 	</div>
