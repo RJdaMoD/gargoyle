@@ -29,3 +29,14 @@ apmS.enterPasswordForSshKeyTransfer="Enter password for ssh key transfer to $AP"
 apmS.enterPasswordForSshKeyTransferDetail="Enter password to copy the ssh key from this device to the target accesspoint $AP.";
 apmS.transfer="Transfer key";
 apmS.editRadio="Edit Radio";
+apmS.SSIDs="Wireless Service Sets";
+apmS.managedSSIDs="Managed Wireless Service Sets";
+apmS.addSSID="Add Wireless Service Set";
+apmS.SSID="Service Set Identifier";
+apmS.security="Security";
+apmS.disabled="Disabled";
+apmS.enabled="Enabled";
+apmS.hidden="Hidden";
+apmS.fastRoaming="Fast Roaming";
+apmS.isolate="Isolate";
+

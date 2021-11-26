@@ -126,6 +126,7 @@ function saveChanges()
 		}
 		runCommandsWithCallback(mainCommands, callback);
 	}
+	else { disableSaveButton(); }
 }
 
 function resetData()
@@ -142,6 +143,7 @@ function buildTables()
 {
 	buildAccessPointTable();
 	buildRadioTable();
+	buildSSIDtable();
 }
 
 function buildAccessPointTable() {
@@ -193,6 +195,94 @@ function buildRadioTable() {
 	TSort_Data = new Array ('radio_table', 's', 's', 's', 'i', 'i', 's', 'i', 's');
 	tsRegister();
 	tsSetTable('radio_table');
+	tsInit();
+}
+
+function getWifiSecurityRelevantUciOptionsFor(x)
+{
+	if(typeof(x) == "string")
+	{
+		if (x.match(/^psk|^sae/)) {	return ['encryption', 'key'];	}
+		else if (x.match(/^wep/)) {	return ['encryption', 'key', 'key1', 'key2', 'key3', 'key4']; }
+		else if (serviceSet.security.type.match(/^wpa/)) { return ['encryption', 'server', 'port', 'key']; }
+		else { return ['encryption']; }
+	}
+	else if(typeof(x) == "object")
+	{
+		return clonePlainFlatObject(x, getWifiSecurityRelevantUciOptionsFor(x.encryption));
+	}
+}
+
+function clonePlainFlatObject(obj, keys)
+{
+	if(obj == undefined) { return obj; }
+	keys = keys || Object.keys(obj);
+	var r = {};
+	keys.forEach(key => { r[key] = obj[key]; });
+	return r;
+}
+
+function enrichWithDefaults(obj, defaults)
+{
+	Object.keys(defaults).forEach(k => { if(!obj[k]) { obj[k] = defaults[k]; } })
+	return obj;
+}
+
+function enrichWithUciDefaultsForWifiIface(obj)
+{
+	return enrichWithDefaults(obj, uciDefaults.wireless['wifi-iface']);
+}
+
+function gatherServiceSets(aps) {
+	var gatheredServiceSets = [];
+	aps.forEach(ap => {
+		ap.config.getAllSectionsOfType("wireless", "wifi-iface")
+			.filter(iface => ap.config.get("wireless", iface, "mode") == 'ap')
+			.forEach(iface => {
+				var serviceSet = {'ap': ap.hostName, 'iface': iface};
+				ap.config.getAllOptionsInSection('wireless', iface, true)
+					.forEach(opt => serviceSet[opt] = ap.config.get('wireless', iface, opt));
+				var existingServiceSet = gatheredServiceSets.find(
+					x => [x[0], serviceSet]
+						.map(y => clonePlainFlatObject(y,
+							['ssid', 'disabled', 'hidden', 'isolate', 'ieee80211r']
+								.concat(getWifiSecurityRelevantUciOptionsFor(y))))
+						.map(enrichWithUciDefaultsForWifiIface)
+						.map(JSON.stringify).reduce((y,z) => y == z));
+				if (existingServiceSet) {
+					existingServiceSet.push(serviceSet);
+				} else {
+					gatheredServiceSets.push([serviceSet]);
+				}
+			});
+	});
+	return gatheredServiceSets;
+}
+
+function buildSSIDtable()
+{
+	var gatheredServiceSets = gatherServiceSets(managedAPs);
+	var ssidTable = gatheredServiceSets.map(x =>
+		[x[0].ssid, x[0].encryption,
+			x.map(serviceSet => serviceSet.ap + '.' + serviceSet.device).sort().join(', '),
+			createCheckbox(x[0].disabled == '0',
+					o => changeValueOfBooleanSSIDproperty(x, 'disabled', !o.checked)),
+			createCheckbox(x[0].hidden == '1',
+					o => changeValueOfBooleanSSIDproperty(x, 'hidden', o.checked)),
+			createCheckbox(x[0].isolate == '1',
+					o => changeValueOfBooleanSSIDproperty(x, 'isolate', o.checked)),
+			createCheckbox(x[0].ieee80211r == '1',
+					o => changeValueOfBooleanSSIDproperty(x, 'ieee80211r', o.checked)),
+			createEditButton(editSSIDmodal)]);
+	ssidTable = createTable(
+		[apmS.SSID, apmS.security, apmS.aps, apmS.enabled, apmS.hidden, apmS.isolate, apmS.fastRoaming],
+		ssidTable, "ssid_table", true, false, removeSSIDfromTable);
+	var tableContainer = document.getElementById('ssid_table_container');
+	if(tableContainer.firstChild != null) { tableContainer.removeChild(tableContainer.firstChild); }
+	tableContainer.appendChild(ssidTable);
+	TSort_Data = new Array ('ssid_table', 's', 's', 's');
+	tsRegister();
+	tsSetTable('ssid_table');
 	tsInit();
 }
 
@@ -437,6 +527,12 @@ function removeAPfromTable(table, row)
 	enableSaveButton();
 }
 
+function changeValueOfBooleanSSIDproperty(gatheredServiceSet, option, checked)
+{
+	alert(gatheredServiceSet + ' ' + option + ' ' + checked);
+}
+
+
 function checkAccessPointToBeAdded()
 {
 	var apNameField = document.getElementById("add_ap_name");
@@ -590,4 +686,41 @@ function editRadio(editRow)
 		enableSaveButton();
 		closeModalWindow('access_point_edit_radio_modal');
 	}
+}
+
+function createCheckbox(checked, callback, enabled)
+{
+	var checkbox = document.createElement('input');
+	checkbox.type = 'checkbox';
+	if(enabled == false) { checkbox.setAttribute("disabled", "disabled"); }
+	checkbox.checked = checked;
+	checkbox.onchange = callback;
+	return checkbox;
+}
+
+function removeSSIDfromTable(table, row)
+{
+	var SSIDtoRemove = row.childNodes[0].firstChild.data;
+	row.childNodes[2].firstChild.data.split(', ')
+		.map(apRadio => apRadio.match(/^(.*)\.([^.]*)/))
+		.map(m => { return {'ap': m[1], 'radio': m[2]}; })
+		.forEach(apr => {
+			var ap = managedAPs.find(ap => ap.hostName == apr.ap);
+			ap.config.getAllSectionsOfType('wireless', 'wifi-iface')
+				.filter(iface => ap.config.get('wireless', iface, 'ssid') == SSIDtoRemove
+					&& ap.config.get('wireless', iface, 'device') == apr.radio)
+				.forEach(iface => { ap.config.removeSection('wireless', iface)});
+		});
+	buildSSIDtable();
+	enableSaveButton();
+}
+
+function editSSIDmodal()
+{
+
+}
+
+function addSSID()
+{
+
 }
