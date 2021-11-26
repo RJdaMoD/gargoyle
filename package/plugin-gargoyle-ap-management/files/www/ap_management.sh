@@ -18,6 +18,7 @@ originalManagedAPs = [];
 	echo "currentHostName = '$HOSTNAME';"
 	/usr/lib/ap_management/define_ap_wifi_config.sh originalManagedAPs
 	/usr/lib/ap_management/define_ap_wifi_capabilities.sh originalManagedAPs
+	/usr/lib/ap_management/define_uci_defaults.sh uciDefaults
 %>
 //-->
 </script>
@@ -67,6 +68,33 @@ originalManagedAPs = [];
 
 				<div class="row form-group">
 					<div id="radio_table_container" class="table-responsive col-xs-12"></div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="row">
+	<div class="col-lg-12">
+		<div class="panel panel-default">
+			<div class="panel-heading">
+				<h3 class="panel-title"><%~ ap_management.SSIDs %></h3>
+			</div>
+			<div class="panel-body">
+
+				<div id="ssids_table_heading_container" class="row form-group">
+					<span class="col-xs-12" style="text-decoration:underline">
+						<%~ ap_management.managedSSIDs %>:
+					</span>
+				</div>
+
+				<div class="row form-group">
+					<div id="ssid_table_container" class="table-responsive col-xs-12"></div>
+					<div class="col-xs-12">
+						<button class="btn btn-default btn-add" id="add_ssid_button" onclick="addSSID()" >
+							<%~ ap_management.addSSID %>
+						</button>
+					</div>
 				</div>
 			</div>
 		</div>
