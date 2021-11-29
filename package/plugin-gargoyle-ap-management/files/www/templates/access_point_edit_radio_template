@@ -11,7 +11,7 @@
 							<%~ ap_management.radio %>
 						</label>
 						<span class="col-xs-6">
-							<input type='text' id='edit_radio_radio' class='form-control' disabled="disabled"/>
+							<input type='text' id='edit_radio_radio' class='form-control'/>
 						</span>
 					</div>
 					<div class="row form-group">
