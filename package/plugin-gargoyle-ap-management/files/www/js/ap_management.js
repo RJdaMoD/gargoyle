@@ -213,12 +213,13 @@ function getWifiSecurityRelevantUciOptionsFor(x)
 	}
 }
 
-function clonePlainFlatObject(obj, keys)
+function clonePlainFlatObject(obj, keys, defaults)
 {
 	if(obj == undefined) { return obj; }
 	keys = keys || Object.keys(obj);
 	var r = {};
-	keys.forEach(key => { r[key] = obj[key]; });
+	if(!defaults) { defaults = {}; }
+	keys.forEach(key => { r[key] = obj[key] || defaults[key]; });
 	return r;
 }
 
@@ -246,8 +247,8 @@ function gatherServiceSets(aps) {
 					x => [x[0], serviceSet]
 						.map(y => clonePlainFlatObject(y,
 							['ssid', 'disabled', 'hidden', 'isolate', 'ieee80211r']
-								.concat(getWifiSecurityRelevantUciOptionsFor(y))))
-						.map(enrichWithUciDefaultsForWifiIface)
+								.concat(getWifiSecurityRelevantUciOptionsFor(y.encryption)),
+							uciDefaults.wireless['wifi-iface']))
 						.map(JSON.stringify).reduce((y,z) => y == z));
 				if (existingServiceSet) {
 					existingServiceSet.push(serviceSet);
