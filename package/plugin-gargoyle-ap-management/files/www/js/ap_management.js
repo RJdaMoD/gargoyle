@@ -22,46 +22,57 @@ var managedAPs = [];
 
 function keyFunctionToCompareFunction(k) { return (x,y) => k(x) == k(y) ? 0 : k(x) < k(y) ? -1 : 1; }
 
-function diffArrays(a, b, k, f, g)
+function diffArrays(a, b, key, left, equal, right)
 {
-	var c = keyFunctionToCompareFunction(k);
+	left = left || (x=> {});
+	equal = equal || ((x,y) => {});
+	right = right || (x=> {});
+	var c = keyFunctionToCompareFunction(key);
 	a.sort(c);
 	b.sort(c);
 	var i = 0, j = 0;
 	while(i < a.length && j < b.length)
 	{
-		if(k(a[i]) < k(b[j])) { f(a[i++]); }
-		else if(k(a[i]) > k(b[j])) { g(b[j++]); }
-		else { i++; j++; }
+		if(key(a[i]) < key(b[j])) { left(a[i++]); }
+		else if(key(a[i]) > key(b[j])) { right(b[j++]); }
+		else { equal(a[i++], b[j++]); }
 	}
-	while(i < a.length) { f(a[i++]); }
-	while(j < b.length) { g(b[j++]); }
+	while(i < a.length) { left(a[i++]); }
+	while(j < b.length) { right(b[j++]); }
+}
+
+function union(...arrays)
+{
+	var r = [];
+	arrays.forEach(a => { a.forEach(x => { if(!r.find(y => y == x)) { r.push(x); }})});
+	r.sort();
+	return r;
 }
 
 function saveChanges()
 {
 	var mainCommands = [];
-	var packageAndSection = "ap_management_gargoyle.ap_management";
+	var packageAndSection = 'ap_management_gargoyle.ap_management';
 	function addManagedAP(ap)
 	{
 		if(ap.name != currentHostName)
 		{
-			mainCommands.push("uci -q add_list " + packageAndSection + ".managed_aps=" + ap.name);
+			mainCommands.push('uci -q add_list ' + packageAndSection + '.managed_aps=' + ap.name);
 		}
 	}
 	function deleteManagedAP(ap)
 	{
 		if(ap.name != currentHostName)
 		{
-			mainCommands.push("uci -q del_list " + packageAndSection + ".managed_aps=" + ap.name);
-			mainCommands.push("rm -f /tmp/wifiConfig." + ap.name);
-			mainCommands.push("rm -f /tmp/wifiStatus." + ap.name);
+			mainCommands.push('uci -q del_list ' + packageAndSection + '.managed_aps=' + ap.name);
+			mainCommands.push('rm -f /tmp/wifiConfig.' + ap.name);
+			mainCommands.push('rm -f /tmp/wifiStatus.' + ap.name);
 		}
 	}
 
-	diffArrays(managedAPs, originalManagedAPs, ap => ap.name, addManagedAP, deleteManagedAP);
+	diffArrays(managedAPs, originalManagedAPs, ap => ap.name, addManagedAP, undefined, deleteManagedAP);
 
-	if(mainCommands.length > 0) { mainCommands.push("uci -q commit"); }
+	if(mainCommands.length > 0) { mainCommands.push('uci -q commit'); }
 
 	var uciKeyValue = function(key, value) { return key + "='" + value.replaceAll("'", "'\"'\"'") + "'"; }
 	var diffUciOption = function(c1, c2, pkg, section, option)
@@ -75,37 +86,58 @@ function saveChanges()
 			var cmds = [];
 			if(oldValue && isArray(oldValue))
 			{
-				diffArrays(newValue, oldValue, x => x, v => cmds.push("uci -q add_list " + uciKeyValue(key, v)),
-					v => cmds.push("uci -q del_list " + uciKeyValue(key, v)));
+				diffArrays(newValue, oldValue, x => x, v => cmds.push('uci -q add_list ' + uciKeyValue(key, v)),
+					undefined, v => cmds.push('uci -q del_list ' + uciKeyValue(key, v)));
 			}
 			else
 			{
-				cmds.push("uci -q delete " + key);
-				newValue.forEach(v => { cmds.push("uci -q add_list " + uciKeyValue(key, v)); });
+				cmds.push('uci -q delete ' + key);
+				cmds.push(...newValue.map(v => 'uci -q add_list ' + uciKeyValue(key, v)));
 			}
 			return cmds;
 		}
-		else if(newValue) {	return ["uci -q set " + uciKeyValue(key, newValue)]; }
-		else if(oldValue) {	return ["uci -q delete " + key]; }
+		else if(newValue) {	return ['uci -q set ' + uciKeyValue(key, newValue)]; }
+		else if(oldValue) {	return ['uci -q delete ' + key]; }
 		else { return []; }
+	};
+	var diffUciSection = function(c1, c2, pkg, section)
+	{
+		var oldType = c1.get(pkg, section, '');
+		var newType = c2.get(pkg, section, '');
+		var key = pkg + '.' + section;
+		var cmds = [];
+		if(newType && oldType != newType) {	cmds.push('uci -q set ' + uciKeyValue(key, newType)); }
+		diffArrays(c1.getAllOptionsInSection(pkg, section, true),
+			c2.getAllOptionsInSection(pkg, section, true), opt => opt,
+			opt => { cmds.push('uci -q delete ' + key + '.' + opt); },
+			(opt1, opt2) => { cmds.push(...diffUciOption(c1, c2, pkg, section, opt1)); },
+			opt => {
+				var value = c2.get(pkg, section, opt);
+				if(isArray(value)) { cmds.push(...value.map(v => 'uci -q add_list ' + uciKeyValue(key + '.'+opt, v))); }
+				else { cmds.push('uci -q set ' + uciKeyValue(key + '.'+opt, value)); }
+			});
+		if(oldType && !newType) { cmds.push('uci -q delete ' + key); }
+		return cmds;
+	};
+	var diffUciSections = function(c1, c2, pkg, sections)
+	{
+		return sections.map(section => diffUciSection(c1, c2, pkg, section)).reduce((x,y) => x.concat(y), []);
+	};
+	var diffUciPackage = function(c1, c2, pkg)
+	{
+		return diffUciSections(c1, c2, pkg, union(c1.getAllSections(pkg), c2.getAllSections(pkg)));
 	};
 	var apCommands = [];
 	managedAPs.forEach(ap => {
 		var origAp = originalManagedAPs.find(origAp => origAp.name == ap.name);
 		if(origAp)
 		{
-			var cmds = Array.prototype.concat.apply([],
-				ap.config.getAllSectionsOfType("wireless", "wifi-device").map(radio =>
-					Array.prototype.concat.apply([],
-						["hwmode", "channel", "htmode", "txpower", "country"]
-							.map(opt => diffUciOption(origAp.config, ap.config, "wireless", radio, opt)))
-				)
-			);
+			var cmds = diffUciPackage(origAp.config, ap.config, 'wireless')
 			if(cmds.length > 0)
 			{
-				cmds.push("uci commit", "wifi");
+				cmds.push('uci commit', 'wifi');
 				apCommands.push("source /usr/lib/ap_management/runCommandOnAccessPoints.sh '"
-					+ cmds.join("\n").replaceAll("'","'\"'\"'") + "' "
+					+ cmds.join('\n').replaceAll("'","'\"'\"'") + "' "
 					+ "'' " + ap.name);
 			}
 		}
@@ -131,12 +163,12 @@ function saveChanges()
 
 function resetData()
 {
+	disableSaveButton();
 	managedAPs = originalManagedAPs.map(ap => {
 			return {"name": ap.name, "hostName": ap.hostName, "ip": ap.ip, "config": ap.config.clone(),
-				"radios": ap.radios }
+				"radios": ap.radios.map(radio => clonePlainFlatObject(radio)) };
 		});
 	buildTables();
-	disableSaveButton();
 }
 
 function buildTables()
@@ -666,27 +698,65 @@ function checkAllowedOptionsInRadioEditModal(element)
 
 function editRadio(editRow)
 {
+	var changed = false;
+	var editValues = function(i) { return editRow.childNodes[i].firstChild.data; };
 	var txPowerField = document.getElementById('edit_radio_tx_power');
 	if(txPowerField.value && (txPowerField.value < txPowerField.min || txPowerField.max < txPowerField.value))
 	{
 		txPowerField.style.border = "solid red";
-		noErrors = false;
+		return;
 	}
-	else
+	else { txPowerField.style.border = ""; }
+	var radioField = document.getElementById('edit_radio_radio');
+	var apRadio = editValues(1);
+	var newRadio = radioField.value;
+	if(!newRadio || managedAPs.find(ap => ap.hostName == editValues(0))
+		.config.getAllSectionsOfType('wireless','wifi-device')
+		.filter(radio => radio != apRadio).find(radio => radio == newRadio))
 	{
-		txPowerField.style.border = "";
-		var apHostName = document.getElementById("edit_radio_ap").value;
-		var ap = managedAPs.find(ap => ap.hostName == apHostName);
-		var apRadio = document.getElementById("edit_radio_radio").value;
-		ap.config.set("wireless", apRadio, "hwmode", document.getElementById('edit_radio_channel_band').value);
-		ap.config.set("wireless", apRadio, "channel", document.getElementById('edit_radio_channel').value);
-		ap.config.set("wireless", apRadio, "htmode", document.getElementById('edit_radio_channel_mode').value);
-		ap.config.set("wireless", apRadio, "txpower", txPowerField.value);
-		ap.config.set("wireless", apRadio, "country", document.getElementById('edit_radio_country').value);
-		buildRadioTable();
-		enableSaveButton();
-		closeModalWindow('access_point_edit_radio_modal');
+		radioField.style.border = "solid red";
+		return;
 	}
+	var apHostName = document.getElementById("edit_radio_ap").value;
+	var ap = managedAPs.find(ap => ap.hostName == apHostName);
+	if(apRadio != newRadio)
+	{
+		ap.config.set('wireless', newRadio, '', 'wifi-device');
+		ap.config.getAllOptionsInSection('wireless', apRadio, true)
+			.forEach(opt => {
+				var value = ap.config.get('wireless', apRadio, opt);
+				ap.config.remove('wireless', apRadio, opt);
+				if(isArray(value)) { ap.config.createListOption('wireless', newRadio, opt); }
+				ap.config.set('wireless', newRadio, opt, value);
+			});
+		ap.config.getAllSectionsOfType('wireless', 'wifi-iface')
+			.filter(iface => ap.config.get('wireless', iface, 'device') == apRadio)
+			.forEach(iface => { ap.config.set('wireless', iface, 'device', newRadio); });
+		ap.config.remove('wireless', apRadio, '');
+		ap.radios.find(radio => radio.radio == apRadio).radio = newRadio;
+		apRadio = newRadio;
+		changed = true;
+		buildSSIDtable();
+	}
+	var checkAndSetUciValue = function(opt, id)
+	{
+			var oldValue = ap.config.get('wireless', apRadio, opt);
+			var newValue = document.getElementById(id).value;
+			if(oldValue != newValue)
+			{
+				ap.config.set('wireless', apRadio, opt, newValue)
+				return true;
+			}
+			return false;
+	};
+	changed |= checkAndSetUciValue('hwmode', 'edit_radio_channel_band');
+	changed |= checkAndSetUciValue('channel', 'edit_radio_channel');
+	changed |= checkAndSetUciValue('htmode', 'edit_radio_channel_mode');
+	changed |= checkAndSetUciValue('txpower', 'edit_radio_tx_power');
+	changed |= checkAndSetUciValue('country', 'edit_radio_country');
+	buildRadioTable();
+	if(changed) { enableSaveButton(); }
+	closeModalWindow('access_point_edit_radio_modal');
 }
 
 function createCheckbox(checked, callback, enabled)
