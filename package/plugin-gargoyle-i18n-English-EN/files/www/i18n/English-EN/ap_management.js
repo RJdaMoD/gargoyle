@@ -32,6 +32,7 @@ apmS.editRadio="Edit Radio";
 apmS.SSIDs="Wireless Service Sets";
 apmS.managedSSIDs="Managed Wireless Service Sets";
 apmS.addSSID="Add Wireless Service Set";
+apmS.editSSID="Edit Wireless Service Set";
 apmS.SSID="Service Set Identifier";
 apmS.security="Security";
 apmS.disabled="Disabled";
@@ -39,4 +40,9 @@ apmS.enabled="Enabled";
 apmS.hidden="Hidden";
 apmS.fastRoaming="Fast Roaming";
 apmS.isolate="Isolate";
+apmS.cipher="Cipher";
+apmS.key="Key";
+apmS.radiusServer="RADIUS Server";
+apmS.radiusPort="RADIUS Port";
+
 

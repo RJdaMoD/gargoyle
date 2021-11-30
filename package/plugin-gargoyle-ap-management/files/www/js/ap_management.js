@@ -6,7 +6,8 @@
  * itself remain covered by the GPL.
  * See http://gargoyle-router.com/faq.html#qfoss for more information
  */
-var apmS=new Object(); //part of i18n
+var apmS   = new Object(); //part of i18n
+var basicS = new Object(); //part of i18n
 
 var pkg = "ap_management";
 var sec = "config";
@@ -17,6 +18,8 @@ var channelBandReverseMap = {};
 Object.keys(channelBandMap).forEach(k => { channelBandReverseMap[channelBandMap[k]] = k; });
 var htModeMap = {};
 ["NOHT", "HT20", "HT40", "HT40-", "HT40+", "VHT20", "VHT40", "VHT80", "VHT160"].forEach(x => { htModeMap[x] = x; } );
+var encryptionMap;
+var encryptionCiphers = {'ccmp': 'CCMP', 'tkip': 'TKIP', 'tkip+ccmp': 'CCMP & TKIP', 'gcmp': 'GCMP'};
 
 var managedAPs = [];
 
@@ -48,6 +51,19 @@ function union(...arrays)
 	r.sort();
 	return r;
 }
+
+function leftComplementIntersectionRightComplement(a, b, key)
+{
+	var l = [], i = [], r = [];
+	var f = function(a) { return x => { a.push(x); }; };
+	key = key || (x=>x);
+	diffArrays(a, b, key, f(l), f(i), f(r));
+	return [l, i, r];
+}
+
+function intersection(a, b, key) { return leftComplementIntersectionRightComplement(a, b, key)[1]; }
+
+function complement(a, b, key) { return leftComplementIntersectionRightComplement(a, b, key)[0]; }
 
 function saveChanges()
 {
@@ -107,8 +123,8 @@ function saveChanges()
 		var key = pkg + '.' + section;
 		var cmds = [];
 		if(newType && oldType != newType) {	cmds.push('uci -q set ' + uciKeyValue(key, newType)); }
-		diffArrays(c1.getAllOptionsInSection(pkg, section, true),
-			c2.getAllOptionsInSection(pkg, section, true), opt => opt,
+		diffArrays(c1.getAllOptionsInSection(pkg, section + '\\.', true),
+			c2.getAllOptionsInSection(pkg, section + '\\.', true), opt => opt,
 			opt => { cmds.push('uci -q delete ' + key + '.' + opt); },
 			(opt1, opt2) => { cmds.push(...diffUciOption(c1, c2, pkg, section, opt1)); },
 			opt => {
@@ -156,7 +172,8 @@ function saveChanges()
 				resetData();
 			}
 		}
-		runCommandsWithCallback(mainCommands, callback);
+		//runCommandsWithCallback(mainCommands, callback);
+		alert(mainCommands);
 	}
 	else { disableSaveButton(); }
 }
@@ -273,7 +290,7 @@ function gatherServiceSets(aps) {
 			.filter(iface => ap.config.get("wireless", iface, "mode") == 'ap')
 			.forEach(iface => {
 				var serviceSet = {'ap': ap.hostName, 'iface': iface};
-				ap.config.getAllOptionsInSection('wireless', iface, true)
+				ap.config.getAllOptionsInSection('wireless', iface + '\\.', true)
 					.forEach(opt => serviceSet[opt] = ap.config.get('wireless', iface, opt));
 				var existingServiceSet = gatheredServiceSets.find(
 					x => [x[0], serviceSet]
@@ -292,20 +309,47 @@ function gatherServiceSets(aps) {
 	return gatheredServiceSets;
 }
 
+function getWifiEncryptionMap()
+{
+	if(!encryptionMap)
+	{
+		encryptionMap = {
+			'none': basicS.None, 'sae-mixed': 'WPA3/WPA2 SAE/PSK', 'sae': 'WPA3 SAE', 'psk2': 'WPA2 PSK',
+			'psk': 'WPA PSK', 'wep': 'WEP', 'owe': 'OWE', 'wpa': 'WPA RADIUS', 'wpa2': 'WPA2 RADIUS',
+			'wpa-mixed': 'WPA/WPA2 RADIUS', 'wpa3': 'WPA3 RADIUS', 'wpa3-mixed': 'WPA3/WPA2 RADIUS'
+		};
+	}
+	return encryptionMap;
+}
+
+function getWifiEncryptionName(enc)
+{
+	var encryptionMap = getWifiEncryptionMap();
+	var x = enc.split('+');
+	var r = encryptionMap[x[0]];
+	if(r)
+	{
+		var cipher = x.slice(1).join('+').replace(/aes/,'ccmp');
+		cipher = encryptionCiphers[cipher] || cipher;
+		return cipher ? r + ' (' + cipher + ')' : r;
+	}
+	else { return enc; }
+}
+
 function buildSSIDtable()
 {
 	var gatheredServiceSets = gatherServiceSets(managedAPs);
 	var ssidTable = gatheredServiceSets.map(x =>
-		[x[0].ssid, x[0].encryption,
+		[x[0].ssid, getWifiEncryptionName(x[0].encryption),
 			x.map(serviceSet => serviceSet.ap + '.' + serviceSet.device).sort().join(', '),
-			createCheckbox(x[0].disabled == '0',
-					o => changeValueOfBooleanSSIDproperty(x, 'disabled', !o.checked)),
+			createCheckbox(x[0].disabled != '1',
+					o => changeValueOfBooleanSSIDproperty(x, 'disabled', !o.target.checked)),
 			createCheckbox(x[0].hidden == '1',
-					o => changeValueOfBooleanSSIDproperty(x, 'hidden', o.checked)),
+					o => changeValueOfBooleanSSIDproperty(x, 'hidden', o.target.checked)),
 			createCheckbox(x[0].isolate == '1',
-					o => changeValueOfBooleanSSIDproperty(x, 'isolate', o.checked)),
+					o => changeValueOfBooleanSSIDproperty(x, 'isolate', o.target.checked)),
 			createCheckbox(x[0].ieee80211r == '1',
-					o => changeValueOfBooleanSSIDproperty(x, 'ieee80211r', o.checked)),
+					o => changeValueOfBooleanSSIDproperty(x, 'ieee80211r', o.target.checked)),
 			createEditButton(editSSIDmodal)]);
 	ssidTable = createTable(
 		[apmS.SSID, apmS.security, apmS.aps, apmS.enabled, apmS.hidden, apmS.isolate, apmS.fastRoaming],
@@ -560,12 +604,6 @@ function removeAPfromTable(table, row)
 	enableSaveButton();
 }
 
-function changeValueOfBooleanSSIDproperty(gatheredServiceSet, option, checked)
-{
-	alert(gatheredServiceSet + ' ' + option + ' ' + checked);
-}
-
-
 function checkAccessPointToBeAdded()
 {
 	var apNameField = document.getElementById("add_ap_name");
@@ -722,7 +760,7 @@ function editRadio(editRow)
 	if(apRadio != newRadio)
 	{
 		ap.config.set('wireless', newRadio, '', 'wifi-device');
-		ap.config.getAllOptionsInSection('wireless', apRadio, true)
+		ap.config.getAllOptionsInSection('wireless', apRadio + '\\.', true)
 			.forEach(opt => {
 				var value = ap.config.get('wireless', apRadio, opt);
 				ap.config.remove('wireless', apRadio, opt);
@@ -765,7 +803,7 @@ function createCheckbox(checked, callback, enabled)
 	checkbox.type = 'checkbox';
 	if(enabled == false) { checkbox.setAttribute("disabled", "disabled"); }
 	checkbox.checked = checked;
-	checkbox.onchange = callback;
+	checkbox.onclick = callback;
 	return checkbox;
 }
 
@@ -786,8 +824,89 @@ function removeSSIDfromTable(table, row)
 	enableSaveButton();
 }
 
+function changeValueOfBooleanSSIDproperty(gatheredServiceSets, option, checked)
+{
+	var newValue = checked ? '1' : '0';
+	gatheredServiceSets.forEach(serviceSet => {
+		managedAPs.find(ap => ap.hostName == serviceSet.ap).config.set('wireless', serviceSet.iface, option, newValue);
+	});
+	enableSaveButton();
+}
+
 function editSSIDmodal()
 {
+	var editRow = this.parentNode.parentNode;
+	var modalButtons = [
+		{"title" : UI.CApplyChanges, "classes" : "btn btn-primary", "function" : function() { editSSID(editRow); } },
+		"defaultDiscard"
+	];
+	var editValues = function(i) { return editRow.childNodes[i].firstChild.data; };
+	var ssid = editValues(0);
+	var selectedAps = editValues(2).split(/, /);
+	var serviceSets = gatherServiceSets(managedAPs).find(
+		serviceSets => serviceSets[0].ssid == ssid
+			&& selectedAps.indexOf(serviceSets[0].ap + '.' + serviceSets[0].device) >= 0);
+	var allRadios = {};
+	managedAPs.forEach(ap => { ap.radios.forEach(radio => {
+			var s = ap.hostName + '.' + radio.radio;
+			allRadios[s] = s; })});
+	var ifaceDefaults = uciDefaults.wireless['wifi-iface'];
+	var getOption = function(opt) { return serviceSets[0][opt] || uciDefaults.wireless['wifi-iface'][opt]; };
+	var encryption = getOption('encryption').split('+');
+	if(encryption.length > 1)
+	{
+		encryption = [encryption[0], encryption.slice(1).join('+').replace(/aes/, 'ccmp')];
+	}
+	else { encryption.push('ccmp'); }
+	var modalElements = [
+		{'id': 'edit_ssid_ssid', 'value': ssid},
+		{'id': 'edit_ssid_aps', 'values': editValues(2).split(/, /), 'options': allRadios},
+		{'id': 'edit_ssid_encryption', 'value': encryption[0],
+			'options': getWifiEncryptionMap()},
+		{'id': 'edit_ssid_encryption_cipher', 'value': encryption[0] != 'wep' ? encryption[1] : 'ccmp',
+			'options': encryptionCiphers},
+		{'id': 'edit_ssid_encryption_key', 'value': serviceSets[0].key},
+		{'id': 'edit_ssid_radius_server', 'value': serviceSets[0].server},
+		{'id': 'edit_ssid_radius_port', 'value': getOption('port')},
+		{'id': 'edit_ssid_wep_mode', 'value': encryption[0] == 'wep' && encryption[1] ? encryption[1] : 'open'},
+		{'id': 'edit_ssid_wep_key', 'value': serviceSets[0].key},
+		{'id': 'edit_ssid_wep_key1', 'value': serviceSets[0].key1},
+		{'id': 'edit_ssid_wep_key2', 'value': serviceSets[0].key2},
+		{'id': 'edit_ssid_wep_key3', 'value': serviceSets[0].key3},
+		{'id': 'edit_ssid_wep_key4', 'value': serviceSets[0].key4}
+	];
+	modalPrepare('access_points_edit_ssid_modal', apmS.editSSID, modalElements, modalButtons);
+	[{'id': 'edit_ssid_enabled', 'value': getOption('disabled') == '0'},
+		{'id': 'edit_ssid_hidden', 'value': getOption('hidden') == '1'},
+		{'id': 'edit_ssid_isolate', 'value': getOption('isolate') == '1'}]
+		.forEach(x => { document.getElementById(x.id).checked = x.value; });
+	showCorrespondingEncryptionFieldsInSsidEditModal();
+	openModalWindow('access_points_edit_ssid_modal');
+}
+
+function showCorrespondingEncryptionFieldsInSsidEditModal()
+{
+	var showEditField = function(subid, show) {
+		document.getElementById('edit_ssid_' + subid + '_container').style.display =
+			show != false ? 'block' : 'none';
+	};
+	var hideEditField = function(subid) { showEditField(subid, false); }
+	var wepRowIds = ['wep_mode', 'wep_key', 'wep_key1', 'wep_key2', 'wep_key3', 'wep_key4'];
+	var pskRowIds = ['encryption_key', 'encryption_cipher'];
+	var wpaRowIds = [...pskRowIds, 'radius_server', 'radius_port'];
+	var allRowIds = union(wepRowIds, pskRowIds, wpaRowIds);
+	var showOnly = function(ids) {
+		complement(allRowIds, ids).forEach(hideEditField);
+		ids.forEach(showEditField);
+	};
+	var selectedSecurity = document.getElementById('edit_ssid_encryption').value;
+	if(selectedSecurity.match(/^wep/)) { showOnly(wepRowIds); }
+	else if(selectedSecurity.match(/^psk|^sae/)) { showOnly(pskRowIds); }
+	else if(selectedSecurity.match(/^wpa/)) { showOnly(wpaRowIds); }
+	else { showOnly([]); }
+}
+
+function editSSID(editRow) {
 
 }
 

@@ -8,7 +8,7 @@
 	eval $( gargoyle_session_validator -c "$COOKIE_hash" -e "$COOKIE_exp" -a "$HTTP_USER_AGENT" -i "$REMOTE_ADDR" \
 		-r "login.sh" -t $(uci get gargoyle.global.session_timeout) -b "$COOKIE_browser_time" )
 	gargoyle_header_footer -h -i -s "connection" -p "ap_management" -j "gs_sortable.js table.js ap_management.js" \
-		-z "ap_management.js" ap_management
+		-z "ap_management.js basic.js" ap_management
 %>
 
 <script>
@@ -177,6 +177,24 @@ originalManagedAPs = [];
 				<%in templates/access_point_edit_radio_template %>
 			</div>
 			<div class="modal-footer" id="access_point_edit_radio_modal_button_container">
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="modal fade" tabindex="-1" role="dialog" id="access_points_edit_ssid_modal"
+		aria-hidden="true" aria-labelledby="access_points_edit_ssid_modal_title">
+	<div class="modal-dialog modal-lg" role="document">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h3 id="access_points_edit_ssid_modal_title" class="panel-title">
+					<%~ ap_management.editSSID %>
+				</h3>
+			</div>
+			<div class="modal-body">
+				<%in templates/access_points_edit_ssid_template %>
+			</div>
+			<div class="modal-footer" id="access_points_edit_ssid_modal_button_container">
 			</div>
 		</div>
 	</div>
