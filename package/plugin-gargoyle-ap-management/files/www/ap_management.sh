@@ -112,7 +112,7 @@ originalManagedAPs = [];
 
 <div class="modal fade" tabindex="-1" role="dialog" id="access_point_supply_ip_address_modal" aria-hidden="true"
 		aria-labelledby="access_point_supply_ip_address_modal_title">
-	<div class="modal-dialog modal-lg" role="document">
+	<div class="modal-dialog" role="document">
 		<div class="modal-content">
 			<div class="modal-header">
 				<h3 id="access_point_supply_ip_address_modal_title" class="panel-title">
@@ -130,7 +130,7 @@ originalManagedAPs = [];
 
 <div class="modal fade" tabindex="-1" role="dialog" id="access_point_confirm_host_key_modal" aria-hidden="true"
 		aria-labelledby="access_point_confirm_host_key_modal_title">
-	<div class="modal-dialog modal-lg" role="document">
+	<div class="modal-dialog" role="document">
 		<div class="modal-content">
 			<div class="modal-header">
 				<h3 id="access_point_confirm_host_key_modal_title" class="panel-title">
@@ -148,7 +148,7 @@ originalManagedAPs = [];
 
 <div class="modal fade" tabindex="-1" role="dialog" id="access_point_enter_password_modal"
 		aria-hidden="true" aria-labelledby="access_point_enter_password_modal_title">
-	<div class="modal-dialog modal-lg" role="document">
+	<div class="modal-dialog" role="document">
 		<div class="modal-content">
 			<div class="modal-header">
 				<h3 id="access_point_enter_password_modal_title" class="panel-title">
@@ -166,7 +166,7 @@ originalManagedAPs = [];
 
 <div class="modal fade" tabindex="-1" role="dialog" id="access_point_edit_radio_modal"
 		aria-hidden="true" aria-labelledby="access_point_edit_radio_modal_title">
-	<div class="modal-dialog modal-lg" role="document">
+	<div class="modal-dialog" role="document">
 		<div class="modal-content">
 			<div class="modal-header">
 				<h3 id="access_point_edit_radio_modal_title" class="panel-title">
@@ -184,7 +184,7 @@ originalManagedAPs = [];
 
 <div class="modal fade" tabindex="-1" role="dialog" id="access_points_edit_ssid_modal"
 		aria-hidden="true" aria-labelledby="access_points_edit_ssid_modal_title">
-	<div class="modal-dialog modal-lg" role="document">
+	<div class="modal-dialog" role="document">
 		<div class="modal-content">
 			<div class="modal-header">
 				<h3 id="access_points_edit_ssid_modal_title" class="panel-title">
