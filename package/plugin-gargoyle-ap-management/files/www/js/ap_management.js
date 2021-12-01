@@ -886,18 +886,18 @@ function editSSIDmodal()
 
 function showCorrespondingEncryptionFieldsInSsidEditModal()
 {
-	var showEditField = function(subid, show) {
+
+	var changeVisibilityOfEditField = function(subid, show) {
 		document.getElementById('edit_ssid_' + subid + '_container').style.display =
 			show != false ? 'block' : 'none';
 	};
-	var hideEditField = function(subid) { showEditField(subid, false); }
 	var wepRowIds = ['wep_mode', 'wep_key', 'wep_key1', 'wep_key2', 'wep_key3', 'wep_key4'];
 	var pskRowIds = ['encryption_key', 'encryption_cipher'];
 	var wpaRowIds = [...pskRowIds, 'radius_server', 'radius_port'];
 	var allRowIds = union(wepRowIds, pskRowIds, wpaRowIds);
 	var showOnly = function(ids) {
-		complement(allRowIds, ids).forEach(hideEditField);
-		ids.forEach(showEditField);
+		complement(allRowIds, ids).forEach(id => changeVisibilityOfEditField(id, false));
+		ids.forEach(id => changeVisibilityOfEditField(id, true));
 	};
 	var selectedSecurity = document.getElementById('edit_ssid_encryption').value;
 	if(selectedSecurity.match(/^wep/)) { showOnly(wepRowIds); }
