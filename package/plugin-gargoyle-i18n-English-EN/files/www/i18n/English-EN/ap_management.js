@@ -44,5 +44,10 @@ apmS.cipher="Cipher";
 apmS.key="Key";
 apmS.radiusServer="RADIUS Server";
 apmS.radiusPort="RADIUS Port";
-
+apmS.disassocLowAck="Disassociate Clients with bad Connection";
+apmS.fastRoamingMode="Fast Roaming Mode";
+apmS.autoDiscovery="Automatic Discovery";
+apmS.staticConfiguration="Static Configuration";
+apmS.localKeyGeneration="Local Key Genaration";
+apmS.missingVlanOnAps="There is missing VLAN-configurtion for VLAN $VLAN on these access points: ";
 
