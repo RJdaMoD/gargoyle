@@ -3,7 +3,7 @@
 							<%~ ap_management.SSID %>:
 						</label>
 						<span class='col-xs-6'>
-							<input type='text' id='edit_ssid_ssid' class='form-control'/>
+							<input type='text' id='edit_ssid_ssid' class='form-control' minlength='1' maxlength='32'/>
 						</span>
 					</div>
 
@@ -36,10 +36,21 @@
 
 					<div class='row form-group' id='edit_ssid_aps_container'>
 						<label class='col-xs-6' id='edit_ssid_aps_label' for='edit_ssid_aps'>
-							<%~ ap_management.aps %>:
+							<%~ ap_management.aps %> / <%~ ap_management.radios %>:
 						</label>
 						<span class='col-xs-6'>
-							<select id='edit_ssid_aps' class='form-control' multiple="multiple" style="height: 100%;">
+							<select id='edit_ssid_aps' class='form-control' multiple='multiple' style='height: 100%;'
+											onchange='ajdustAvailableVlansInSsidEditModal()'>
+							</select>
+						</span>
+					</div>
+
+					<div class='row form-group' id='edit_ssid_vlan_container'>
+						<label class='col-xs-6' id='edit_ssid_vlan_label' for='edit_ssid_vlan'>
+							VLAN ID:
+						</label>
+						<span class='col-xs-6'>
+							<select id='edit_ssid_vlan' class='form-control'>
 							</select>
 						</span>
 					</div>
@@ -52,7 +63,7 @@
 						</label>
 						<span class='col-xs-6'>
 							<select id='edit_ssid_encryption' class='form-control'
-											onchange='showCorrespondingEncryptionFieldsInSsidEditModal()'>
+											onchange='showCorrespondingFieldsInSsidEditModal()'>
 							</select>
 						</span>
 					</div>
@@ -72,11 +83,12 @@
 							<%~ ap_management.key %>:
 						</label>
 						<span class='col-xs-6'>
-							<input type='password' id='edit_ssid_encryption_key' class='form-control' size="20" autocomplete="off"/>
+							<input type='password' id='edit_ssid_encryption_key' class='form-control' size='20'
+										 autocomplete='new-password'/>
 							&nbsp;&nbsp;
-							<input type="checkbox" id="edit_ssid_show_encryption_key"
+							<input type='checkbox' id='edit_ssid_show_encryption_key'
 										 onclick="togglePass('edit_ssid_encryption_key')"/>
-							<label for="edit_ssid_show_encryption_key" id="edit_ssid_show_encryption_key_label">
+							<label for='edit_ssid_show_encryption_key' id='edit_ssid_show_encryption_key_label'>
 								<%~ basic.rvel %>
 							</label>
 						</span>
@@ -116,9 +128,9 @@
 							WEP key/index:
 						</label>
 						<span class='col-xs-6'>
-							<input type='password' id='edit_ssid_wep_key' class='form-control' autocomplete="off"/>
-							<input type="checkbox" id="edit_ssid_show_wep_key" onclick="togglePass('edit_ssid_wep_key')"/>
-							<label for="edit_ssid_show_wep_key" id="edit_ssid_show_wep_key_label">
+							<input type='password' id='edit_ssid_wep_key' class='form-control' autocomplete='off'/>
+							<input type='checkbox' id='edit_ssid_show_wep_key' onclick="togglePass('edit_ssid_wep_key')"/>
+							<label for='edit_ssid_show_wep_key' id='edit_ssid_show_wep_key_label'>
 								<%~ basic.rvel %>
 							</label>
 						</span>
@@ -128,9 +140,9 @@
 							WEP key #1:
 						</label>
 						<span class='col-xs-6'>
-							<input type='password' id='edit_ssid_wep_key1' class='form-control' autocomplete="off"/>
-							<input type="checkbox" id="edit_ssid_show_wep_key1" onclick="togglePass('edit_ssid_wep_key1')"/>
-							<label for="edit_ssid_show_wep_key1" id="edit_ssid_show_wep_key1_label">
+							<input type='password' id='edit_ssid_wep_key1' class='form-control' autocomplete='off'/>
+							<input type='checkbox' id='edit_ssid_show_wep_key1' onclick="togglePass('edit_ssid_wep_key1')"/>
+							<label for='edit_ssid_show_wep_key1' id='edit_ssid_show_wep_key1_label'>
 								<%~ basic.rvel %>
 							</label>
 						</span>
@@ -140,9 +152,9 @@
 							WEP key #2
 						</label>
 						<span class='col-xs-6'>
-							<input type='password' id='edit_ssid_wep_key2' class='form-control' autocomplete="off"/>
-							<input type="checkbox" id="edit_ssid_show_wep_key2" onclick="togglePass('edit_ssid_wep_key2')"/>
-							<label for="edit_ssid_show_wep_key2" id="edit_ssid_show_wep_key2_label">
+							<input type='password' id='edit_ssid_wep_key2' class='form-control' autocomplete='off'/>
+							<input type='checkbox' id='edit_ssid_show_wep_key2' onclick="togglePass('edit_ssid_wep_key2')"/>
+							<label for='edit_ssid_show_wep_key2' id='edit_ssid_show_wep_key2_label'>
 								<%~ basic.rvel %>
 							</label>
 						</span>
@@ -152,9 +164,9 @@
 							WEP key #3:
 						</label>
 						<span class='col-xs-6'>
-							<input type='password' id='edit_ssid_wep_key3' class='form-control' autocomplete="off"/>
-							<input type="checkbox" id="edit_ssid_show_wep_key3" onclick="togglePass('edit_ssid_wep_key3')"/>
-							<label for="edit_ssid_show_wep_key3" id="edit_ssid_show_wep_key3_label">
+							<input type='password' id='edit_ssid_wep_key3' class='form-control' autocomplete='off'/>
+							<input type='checkbox' id='edit_ssid_show_wep_key3' onclick="togglePass('edit_ssid_wep_key3')"/>
+							<label for='edit_ssid_show_wep_key3' id='edit_ssid_show_wep_key3_label'>
 								<%~ basic.rvel %>
 							</label>
 						</span>
@@ -164,10 +176,70 @@
 							WEP key #4:
 						</label>
 						<span class='col-xs-6'>
-							<input type='password' id='edit_ssid_wep_key4' class='form-control' autocomplete="off"/>
-							<input type="checkbox" id="edit_ssid_show_wep_key4" onclick="togglePass('edit_ssid_wep_key4')"/>
-							<label for="edit_ssid_show_wep_key4" id="edit_ssid_show_wep_key4_label">
+							<input type='password' id='edit_ssid_wep_key4' class='form-control' autocomplete='off'/>
+							<input type='checkbox' id='edit_ssid_show_wep_key4' onclick="togglePass('edit_ssid_wep_key4')"/>
+							<label for='edit_ssid_show_wep_key4' id='edit_ssid_show_wep_key4_label'>
 								<%~ basic.rvel %>
 							</label>
+						</span>
+					</div>
+
+					<hr>
+
+					<div class='row form-group' id='edit_ssid_ieee80211r_container'>
+						<label class='col-xs-6' id='edit_ssid_ieee80211r_label' for='edit_ssid_ieee80211r'>
+							<%~ ap_management.fastRoaming %>:
+						</label>
+						<span class='col-xs-6'>
+							<input type='checkbox' id='edit_ssid_ieee80211r' class='form-control'
+										 onchange='showCorrespondingFieldsInSsidEditModal()'/>
+						</span>
+					</div>
+
+					<div class='row form-group' id='edit_ssid_mobility_domain_container'>
+						<label class='col-xs-6' id='edit_ssid_mobility_domain_label' for='edit_ssid_mobility_domain'>
+							Mobility Domain:
+						</label>
+						<span class='col-xs-6'>
+							<input type='text' id='edit_ssid_mobility_domain' class='form-control' pattern='[0-9A-Fa-f]{4}'
+										 maxlength="4"/>
+						</span>
+					</div>
+
+					<div class='row form-group' id='edit_ssid_fast_roaming_mode_container'>
+						<label class='col-xs-6' id='edit_ssid_fast_roaming_mode_label' for='edit_ssid_fast_roaming_mode'>
+							<%~ ap_management.fastRoamingMode %>:
+						</label>
+						<span class='col-xs-6'>
+							<select id='edit_ssid_fast_roaming_mode' class='form-control'
+											onchange='showCorrespondingFieldsInSsidEditModal()'>
+							</select>
+						</span>
+					</div>
+
+					<div class='row form-group' id='edit_ssid_pmk_r1_push_container'>
+						<label class='col-xs-6' id='edit_ssid_pmk_r1_push_label' for='edit_ssid_pmk_r1_push'>
+							PMK-R1 push:
+						</label>
+						<span class='col-xs-6'>
+							<input type='checkbox' id='edit_ssid_pmk_r1_push' class='form-control'/>
+						</span>
+					</div>
+
+					<div class='row form-group' id='edit_ssid_ft_over_ds_container'>
+						<label class='col-xs-6' id='edit_ssid_ft_over_ds_label' for='edit_ssid_ft_over_ds'>
+							FT-over-DS:
+						</label>
+						<span class='col-xs-6'>
+							<input type='checkbox' id='edit_ssid_ft_over_ds' class='form-control'/>
+						</span>
+					</div>
+
+					<div class='row form-group' id='edit_ssid_disassoc_low_ack_container'>
+						<label class='col-xs-6' id='edit_ssid_disassoc_low_ack_label' for='edit_ssid_disassoc_low_ack'>
+							<%~ ap_management.disassocLowAck %>:
+						</label>
+						<span class='col-xs-6'>
+							<input type='checkbox' id='edit_ssid_disassoc_low_ack' class='form-control'/>
 						</span>
 					</div>
