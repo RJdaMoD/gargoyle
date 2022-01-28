@@ -9,15 +9,15 @@
 var apmS   = {}; //part of i18n
 var basicS = {}; //part of i18n
 
-var pkg = "ap_management";
-var sec = "config";
-var channelBandMap = {"11b": "2.4GHz (b)", "11g": "2.4GHz", "11a": "5GHz"};
-var channelBandIndex = {"11b": 1, "11g": 1, "11a": 2};
-var allowedChannelBandsForIndex = {1: ["11b", "11g"], 2: ["11a"]};
+var pkg = 'ap_management';
+var sec = 'config';
+var channelBandMap = {'11b': '2.4GHz (b)', '11g': '2.4GHz', '11a': '5GHz'};
+var channelBandIndex = {'11b': 1, '11g': 1, '11a': 2};
+var allowedChannelBandsForIndex = {1: ['11b', '11g'], 2: ['11a']};
 var channelBandReverseMap = {};
 Object.keys(channelBandMap).forEach(k => { channelBandReverseMap[channelBandMap[k]] = k; });
 var htModeMap = {};
-["NOHT", "HT20", "HT40", "HT40-", "HT40+", "VHT20", "VHT40", "VHT80", "VHT160"].forEach(x => { htModeMap[x] = x; } );
+['NOHT', 'HT20', 'HT40', 'HT40-', 'HT40+', 'VHT20', 'VHT40', 'VHT80', 'VHT160'].forEach(x => { htModeMap[x] = x; } );
 var encryptionMap;
 var encryptionCiphers = {'ccmp': 'CCMP', 'tkip': 'TKIP', 'tkip+ccmp': 'CCMP & TKIP', 'gcmp': 'GCMP'};
 
@@ -65,7 +65,7 @@ function pushTo(a) { return x => { a.push(x); }; }
 function leftComplementIntersectionRightComplement(a, b, keyOrCmp)
 {
 	var l = [], i = [], r = [];
-	keyOrCmp = keyOrCmp || (x=>x);
+	keyOrCmp = keyOrCmp || (x => x);
 	diffArrays(a, b, keyOrCmp, pushTo(l), pushTo(i), pushTo(r));
 	return [l, i, r];
 }
@@ -202,6 +202,7 @@ function cloneAP(ap)
 	clonedAP.config = ap.config.clone();
 	clonedAP.radios = ap.radios.map(radio => clonePlainFlatObject(radio));
 	clonedAP.bridges = ap.bridges.slice();
+	clonedAP.wifiInfo = ap.wifiInfo;
 	return clonedAP;
 }
 
@@ -380,7 +381,7 @@ function buildSSIDtable()
 	var gatheredServiceSets = gatherServiceSets(managedAPs);
 	var ssidTable = gatheredServiceSets.map(x =>
 		[x[0].ssid, getWifiEncryptionName(x[0].encryption),
-			x.map(serviceSet => serviceSet.ap + '.' + serviceSet.device).sort().join(', '),
+			getApWithRadioListFromServiceSets(x).sort().join(', '),
 			getCommonVlanOfServiceSets(x),
 			createCheckbox(x[0].disabled !== '1',
 					o => changeValueOfBooleanSSIDproperty(x, 'disabled', !o.target.checked)),
@@ -388,9 +389,9 @@ function buildSSIDtable()
 					o => changeValueOfBooleanSSIDproperty(x, 'hidden', o.target.checked)),
 			createCheckbox(x[0].isolate === '1',
 					o => changeValueOfBooleanSSIDproperty(x, 'isolate', o.target.checked)),
-			createCheckbox(x[0].ieee80211r === '1' && x[0].encryption.match(/^psk|^sae|^wpa/),
+			createCheckbox(x[0].ieee80211r === '1' && x[0].encryption.match(/^(psk|sae|wpa)/),
 					o => changeValueOfBooleanSSIDproperty(x, 'ieee80211r', o.target.checked),
-					x[0].encryption.match(/^psk|^sae|^wpa/)),
+					x[0].encryption.match(/^(psk|sae|wpa)/)),
 			createEditButton(editSSIDmodal)]);
 	ssidTable = createTable(
 		[apmS.SSID, apmS.security, apmS.aps, 'VLAN', apmS.enabled, apmS.hidden, apmS.isolate,
@@ -713,14 +714,15 @@ function editRadioModal()
 	var channel = band ? band.channels.find(channel => channel.channel == apChannel) : undefined;
 	var allowedChannelModes = channel ? convertArrayToOptionsMap(channel.channelWidths): {};
 	var modalElements = [
-		{"id": "edit_radio_ap", "value": apHostName},
-		{"id": "edit_radio_radio", "value": apRadio},
-		{"id": "edit_radio_channel_band", "value": apRadioBand, "options": allowedChannelBandsForRadio},
-		{"id": "edit_radio_channel", "value": apChannel, "options": allowedChannels},
-		{"id": "edit_radio_frequency", "value": editValues(4)},
-		{"id": "edit_radio_channel_mode", "value": editValues(5), "options": allowedChannelModes},
-		{"id": "edit_radio_tx_power", "value": editValues(6)},
-		{"id": "edit_radio_country", "value": editValues(7)}
+		{'id': 'edit_radio_ap', 'value': apHostName},
+		{'id': 'edit_radio_radio', 'value': apRadio},
+		{'id': 'edit_radio_original_radio', 'value': apRadio},
+		{'id': 'edit_radio_channel_band', 'value': apRadioBand, 'options': allowedChannelBandsForRadio},
+		{'id': 'edit_radio_channel', 'value': apChannel, 'options': allowedChannels},
+		{'id': 'edit_radio_frequency', 'value': editValues(4)},
+		{'id': 'edit_radio_channel_mode', 'value': editValues(5), 'options': allowedChannelModes},
+		{'id': 'edit_radio_tx_power', 'value': editValues(6)},
+		{'id': 'edit_radio_country', 'value': editValues(7)}
 	];
 	modalPrepare('access_point_edit_radio_modal', apmS.editRadio, modalElements, modalButtons);
 	checkAllowedOptionsInRadioEditModal();
@@ -739,7 +741,7 @@ function checkAllowedOptionsInRadioEditModal(element)
 	var truncId = element ? element.id.replace(/^edit_radio_/,"") : "channel_band";
 	var apHostName = document.getElementById("edit_radio_ap").value;
 	var ap = managedAPs.find(ap => ap.hostName === apHostName);
-	var apRadio = document.getElementById("edit_radio_radio").value;
+	var apRadio = document.getElementById("edit_radio_original_radio").value;
 	var radio = ap.radios.find(radio => radio.radio === apRadio);
 	var apRadioBand = document.getElementById("edit_radio_channel_band").value;
 	var band = radio.bands.find(band => band.band === channelBandIndex[apRadioBand]);
@@ -823,22 +825,15 @@ function editRadio(editRow)
 		changed = true;
 		buildSSIDtable();
 	}
-	var checkAndSetUciValue = function(opt, id)
+	var checkAndSetUciValueFromId = function(opt, id)
 	{
-			var oldValue = ap.config.get('wireless', apRadio, opt);
-			var newValue = document.getElementById(id).value;
-			if(oldValue !== newValue)
-			{
-				ap.config.set('wireless', apRadio, opt, newValue)
-				return true;
-			}
-			return false;
+			return checkAndSetUciValue(ap, apRadio, opt, document.getElementById(id).value);
 	};
-	changed |= checkAndSetUciValue('hwmode', 'edit_radio_channel_band');
-	changed |= checkAndSetUciValue('channel', 'edit_radio_channel');
-	changed |= checkAndSetUciValue('htmode', 'edit_radio_channel_mode');
-	changed |= checkAndSetUciValue('txpower', 'edit_radio_tx_power');
-	changed |= checkAndSetUciValue('country', 'edit_radio_country');
+	changed |= checkAndSetUciValueFromId('hwmode', 'edit_radio_channel_band');
+	changed |= checkAndSetUciValueFromId('channel', 'edit_radio_channel');
+	changed |= checkAndSetUciValueFromId('htmode', 'edit_radio_channel_mode');
+	changed |= checkAndSetUciValueFromId('txpower', 'edit_radio_tx_power');
+	changed |= checkAndSetUciValueFromId('country', 'edit_radio_country');
 	if(changed)
 	{
 		buildRadioTable();
@@ -874,13 +869,59 @@ function removeSSIDfromTable(table, row)
 	enableSaveButton();
 }
 
-function changeValueOfBooleanSSIDproperty(gatheredServiceSets, option, checked)
+function changeValueOfBooleanSSIDproperty(serviceSets, option, checked)
 {
 	var newValue = checked ? '1' : '0';
-	gatheredServiceSets.forEach(serviceSet => {
-		managedAPs.find(ap => ap.hostName === serviceSet.ap).config.set('wireless', serviceSet.iface, option, newValue);
+	var changed = false;
+	serviceSets.forEach(serviceSet => {
+		changed |= checkAndSetUciValue(managedAPs.find(ap => ap.hostName === serviceSet.ap),
+			serviceSet.iface, option, newValue);
 	});
-	enableSaveButton();
+	if(option === 'ieee80211r' && checked && changed)
+	{
+		var fastRoamingMode = serviceSets[0].encryption.match(/^(psk|sae)/) ?
+			'local' :
+			allServiceSetsHaveMacAddresses(serviceSets) ?
+				'static' :
+				'auto';
+		configureFastRoaming(serviceSets, newValue, fastRoamingMode);
+	}
+	if(changed) { enableSaveButton(); }
+}
+
+function getApWithRadioFromServiceSet(serviceSet) { return serviceSet.ap + '.' + serviceSet.device; }
+
+function getApWithRadioListFromServiceSets(serviceSets)
+{
+	return serviceSets.map(getApWithRadioFromServiceSet);
+}
+
+function getMacAddressesOfServiceSets(serviceSets)
+{
+	return serviceSets.map(
+		serviceSet => {
+			var ap =managedAPs.find(ap=>ap.hostName === serviceSet.ap);
+			var r = { 'ap': serviceSet.ap, 'radio': serviceSet.device, 'iface': serviceSet.iface };
+			r.device = Object.keys(ap.wifiInfo).find(devName=>{
+				var dev = ap.wifiInfo[devName];
+				return dev['ESSID']===serviceSet.ssid &&
+					ap.radios.find(radio=>radio.phy===dev['PHY name']).radio===serviceSet.device;
+			});
+			r.macAddr = r.device && ap.wifiInfo[r.device]['Access Point'];
+			return r;
+		});
+}
+
+function allServiceSetsHaveMacAddresses(serviceSets)
+{
+	return !getMacAddressesOfServiceSets(serviceSets).find(x => !x.macAddr);
+}
+
+function getServiceSetsFor(ssid, apAndRadioList)
+{
+	return gatherServiceSets(managedAPs).find(
+		serviceSets => serviceSets[0].ssid === ssid
+			&& apAndRadioList.includes(getApWithRadioFromServiceSet(serviceSets[0])));
 }
 
 function editSSIDmodal()
@@ -910,6 +951,7 @@ function editSSIDmodal()
 	var fastRoamingModes = { 'auto' : apmS.autoDiscovery, 'static': apmS.staticConfiguration,
 		'local': apmS.localKeyGeneration};
 	if(!encryption[0].match(/^psk|^sae/)) { delete fastRoamingModes.local; }
+	if(!allServiceSetsHaveMacAddresses(serviceSets)) { delete fastRoamingModes.static; }
 	var modalElements = [
 		{'id': 'edit_ssid_ssid', 'value': ssid},
 		{'id': 'edit_ssid_aps', 'values': selectedRadios, 'options': allRadios},
@@ -927,10 +969,7 @@ function editSSIDmodal()
 		{'id': 'edit_ssid_wep_key3', 'value': serviceSets[0].key3},
 		{'id': 'edit_ssid_wep_key4', 'value': serviceSets[0].key4},
 		{'id': 'edit_ssid_mobility_domain', 'value': getOption('mobility_domain')},
-		{'id': 'edit_ssid_fast_roaming_mode', 'options' : fastRoamingModes,
-			'value': getOption('ft_psk_generate_local') === 1 ? 'local' :
-				getOption('r0kh').match(/^ff(:ff){5},\*,/) && getOption('r1kh').match(/^00(:00){5},00(:00){5},/)
-					? 'auto' : 'static'}
+		{'id': 'edit_ssid_fast_roaming_mode', 'options' : fastRoamingModes,	'value': getFastRoamingMode(getOption)}
 	];
 	modalPrepare('access_points_edit_ssid_modal', apmS.editSSID, modalElements, modalButtons);
 	[{'id': 'edit_ssid_enabled', 'value': getOption('disabled') === '0'},
@@ -1046,67 +1085,49 @@ function editSSID(editRow)
 	var fastRoamingEnabled = newEncryption.match(/^(psk|sae|wpa)/) && getField('ieee80211r').checked;
 	var mobilityDomainField = getField('mobility_domain');
 	var fastRoamingModeField = getField('fast_roaming_mode');
-	if(markInvalidField(newSsidField, !(newSsidField.validity.valid && newSsidField.value))
+	if (markInvalidField(newSsidField, !(newSsidField.validity.valid && newSsidField.value))
 		| markInvalidField(newVlanField, !newVlanField.value)
 		| (fastRoamingEnabled && markInvalidField(mobilityDomainField,
 			!(mobilityDomainField.validity.valid && mobilityDomainField.value)))
-		| (fastRoamingEnabled && markInvalidField(fastRoamingModeField, !fastRoamingModeField.value)))
-	{
+		| (fastRoamingEnabled && (
+			markInvalidField(fastRoamingModeField, !fastRoamingModeField.value)
+			| markInvalidField(mobilityDomainField,
+				!(mobilityDomainField.validity.valid && mobilityDomainField.value))))) {
 		return;
 	}
-	var editValues = function(i) { return editRow.childNodes[i].firstChild.data; };
+	var editValues = function(i)
+	{
+		var cell = editRow.childNodes[i].firstChild;
+		return cell.type === 'checkbox' ? cell.checked : cell.data;
+	};
 	var oldSsid = editValues(0);
-	var oldAps = editValues(2).split(/, /);
-	var serviceSets = gatherServiceSets(managedAPs).find(
-		serviceSets => serviceSets[0].ssid === oldSsid
-			&& oldAps.indexOf(serviceSets[0].ap + '.' + serviceSets[0].device) >= 0);
+	var oldRadios = editValues(2).split(/, /);
+	var serviceSets = getServiceSetsFor(oldSsid, oldRadios);
 	var newEnabled = getField('enabled').checked;
 	var selectedAps = getSelectedOptionValues('edit_ssid_aps');
-	var removedAps = [], keptAps = [], addedAps = [];
-	diffArrays(oldAps, selectedAps, null, pushTo(removedAps), pushTo(keptAps), pushTo(addedAps));
-	var modifiedAps = addedAps.concat(keptAps);
-	var processApIface = function(f) {
-		return x => {
-			var [apHost, apRadio] = x.split('.');
-			var ap = managedAPs.find(ap => ap.hostName === apHost);
-			var iface = ap.config.getAllSectionsOfType('wireless', 'wifi-iface')
-				.find(iface => ap.config.get('wireless', iface, 'ssid') === oldSsid
-					&& ap.config.get('wireless', iface, 'device') === apRadio);
-			f(ap, apRadio, iface);
-		};
-	};
-	removedAps.forEach(processApIface((ap, radio, iface) => {
+	var removedRadios = [], keptRadios = [], addedRadios = [];
+	diffArrays(oldRadios, selectedAps, null, pushTo(removedRadios), pushTo(keptRadios), pushTo(addedRadios));
+	removedRadios.forEach(processAPifaceForServiceSet(oldSsid, (ap, radio, iface) => {
 		if(newEnabled)	{ ap.config.set('wireless', iface, 'disabled', '1'); }
 		else { ap.config.removeSection('wireless', iface); }
 		changed = true;
 	}));
-	addedAps.forEach(processApIface((ap, radio, iface) => {
+	serviceSets = serviceSets.filter(serviceSet => !removedRadios.includes(getApWithRadioFromServiceSet(serviceSet)));
+	addedRadios.forEach(processAPifaceForServiceSet(oldSsid, (ap, radio, iface) => {
 		if(!iface)
 		{
 			iface = getRandomSectionName(ap.config,'wireless','ap_managed_');
 			ap.config.set('wireless', iface, '', 'wifi-iface');
 			ap.config.set('wireless', iface, 'ssid', oldSsid);
 			ap.config.set('wireless', iface, 'device', radio);
+			serviceSets.push({'ap': ap.hostName, 'iface': iface, 'device': radio, 'ssid': oldSsid});
 			changed = true;
 		}
 	}));
-	var checkAndSetUciValue = function(ap, section, opt, value)
-	{
-		var oldValue = ap.config.get('wireless', section, opt);
-		if(oldValue !== value)
-		{
-			ap.config.set('wireless', section, opt, value)
-			return true;
-		}
-		return false;
-	};
-	var r0kh = [], r1kh = [], fastRoamingMode = getField(fast_roaming_mode).value;
-	if(fastRoamingEnabled)
-	{
-	}
-	modifiedAps.forEach(processApIface((ap, radio, iface) => {
+	var modifiedAps = addedRadios.concat(keptRadios);
+	modifiedAps.forEach(processAPifaceForServiceSet(oldSsid, (ap, radio, iface) => {
 		changed |= checkAndSetUciValue(ap, iface, 'disabled', newEnabled ? '0' : '1');
-		['hidden', 'isolate', 'ieee80211r', 'ft_over_ds', 'pmk_r1_push', 'disassoc_low_ack']
+		['hidden', 'isolate', 'disassoc_low_ack'].concat(fastRoamingEnabled ? ['ft_over_ds', 'pmk_r1_push'] : [])
 			.forEach(id => {
 				changed |= checkAndSetUciValue(ap, iface, id, getField(id).checked ? '1' : '0')
 			});
@@ -1133,16 +1154,120 @@ function editSSID(editRow)
 			}
 		}
 		else { changed |= checkAndSetUciValue(ap, iface, 'encryption', newEncryption); }
-		// fast-roaming
-
+		if(fastRoamingEnabled)
+		{
+			changed |= checkAndSetUciValue(ap, iface, 'mobility_domain', mobilityDomainField.value);
+		}
 		changed |= checkAndSetUciValue(ap, iface, 'ssid', newSsidField.value);
 	}));
+
+	changed |= configureFastRoaming(serviceSets, fastRoamingEnabled, fastRoamingModeField.value);
+
 	if(changed)
 	{
 		buildSSIDtable();
 		enableSaveButton();
 	}
-	closeModalWindow('access_point_edit_ssid_modal');
+	closeModalWindow('access_points_edit_ssid_modal');
+}
+
+function processAPifaceForServiceSet(ssid, f) {
+	return x => {
+		var [apHost, apRadio] = x.split('.');
+		var ap = managedAPs.find(ap => ap.hostName === apHost);
+		var iface = ap.config.getAllSectionsOfType('wireless', 'wifi-iface')
+			.find(iface => ap.config.get('wireless', iface, 'ssid') === ssid
+				&& ap.config.get('wireless', iface, 'device') === apRadio);
+		f(ap, apRadio, iface);
+	};
+}
+
+function checkAndSetUciValue(ap, section, opt, value)
+{
+	var oldValue = ap.config.get('wireless', section, opt);
+	var changed = false;
+	if(oldValue && isArray(oldValue))
+	{
+		if(value)
+		{
+				changed = !isArray(value) ||
+					value.length !== oldValue.length ||
+					intersection(value, oldValue).length !== value.length;
+		}
+		else {
+			value = [];
+			changed = true;
+		}
+	}
+	else if(value && isArray(value))
+	{
+		ap.config.createListOption('wireless', section, opt);
+		changed = true;
+	}
+	else { changed = oldValue !== value; }
+	if(changed) { ap.config.set('wireless', section, opt, value); }
+	return changed;
+}
+
+function getFastRoamingMode(getOption)
+{
+	var encryptionIsPsk = getOption('encryption').match(/^(psk|sae)/);
+	var r0kh = getOption('r0kh'), r1kh = getOption('r1kh');
+	return encryptionIsPsk && getOption('ft_psk_generate_local') === '1' ?
+		'local' :
+		r0kh && isArray(r0kh) && r1kh && isArray(r1kh)?
+			r0kh.length === 1 && r0kh[0].match(/^ff(:ff){5},\*,/) &&
+			r1kh.length === 1 && r1kh[0].match(/^00(:00){5},00(:00){5},/) ?
+				'auto' :
+				'static' :
+			encryptionIsPsk ? 'local' : 'auto';
+}
+
+function configureFastRoaming(serviceSets, fastRoamingEnabled, fastRoamingMode)
+{
+	var changed = false;
+	var ssid = serviceSets[0].ssid;
+	var r0kh = [], r1kh = [];
+	if(fastRoamingEnabled && ['auto', 'static'].includes(fastRoamingMode)) {
+		var oldR0kh = managedAPs.find(ap => ap.hostName === serviceSets[0].ap)
+			.config.get('wireless', serviceSets[0].iface, 'r0kh');
+		var password = oldR0kh && isArray(oldR0kh) && oldR0kh.split(',').at(-1);
+		if (!password || password.length < 32) {
+			password = randomHexString(32);
+		}
+		if (fastRoamingMode === 'auto') {
+			r0kh.push('ff:ff:ff:ff:ff:ff,*,' + password);
+			r1kh.push('00:00:00:00:00:00,00:00:00:00:00:00,' + password);
+		} else {
+			getMacAddressesOfServiceSets(serviceSets).map(r => r.macAddr).forEach(bssid => {
+				var nasid = bssid.replaceAll(':', '');
+				r0kh.push(`${bssid},${nasid},${password}`);
+				r1kh.push(`${bssid},${bssid},${password}`);
+			});
+		}
+	}
+	getApWithRadioListFromServiceSets(serviceSets).forEach(
+		processAPifaceForServiceSet(ssid,
+			(ap, radio, iface) => {
+				if(fastRoamingEnabled)
+				{
+					if(['auto', 'static'].includes(fastRoamingMode))
+					{
+						changed |= checkAndSetUciValue(ap, iface, 'r0kh', r0kh);
+						changed |= checkAndSetUciValue(ap, iface, 'r1kh', r1kh);
+						changed |= checkAndSetUciValue(ap, iface, 'ft_psk_generate_local', '0');
+						changed |= checkAndSetUciValue(ap, iface, 'ieee80211r', '1');
+					}
+					else if(fastRoamingMode === 'local')
+					{
+						changed |= checkAndSetUciValue(ap, iface, 'ft_psk_generate_local', '1');
+						changed |= checkAndSetUciValue(ap, iface, 'ieee80211r', '1');
+					}
+				}
+				else changed |= checkAndSetUciValue(ap, iface, 'ieee80211r', '0');
+			})
+	);
+	return changed;
 }
 
 function getRandomSectionName(config, section, prefix)
