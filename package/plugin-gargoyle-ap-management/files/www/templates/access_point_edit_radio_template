@@ -8,10 +8,11 @@
 					</div>
 					<div class='row form-group'>
 						<label class='col-xs-6' id='edit_radio_radio_label' for='edit_radio_radio'>
-							<%~ ap_management.radio %>:
+							<%~ ap_management.name %>:
 						</label>
 						<span class='col-xs-6'>
 							<input type='text' id='edit_radio_radio' class='form-control'/>
+							<input type='hidden' id='edit_radio_original_radio'/>
 						</span>
 					</div>
 					<div class='row form-group'>

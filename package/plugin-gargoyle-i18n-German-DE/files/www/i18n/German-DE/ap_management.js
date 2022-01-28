@@ -50,3 +50,4 @@ apmS.autoDiscovery="Automatische Erkennung";
 apmS.staticConfiguration="Statische Konfiguration";
 apmS.localKeyGeneration="Lokale Schlüssel-Erzeugung";
 apmS.missingVlanOnAps="Auf folgenden Zugriffspunkten fehlt VLAN-Konfiguration für VLAN $VLAN: ";
+apmS.name="Name";
