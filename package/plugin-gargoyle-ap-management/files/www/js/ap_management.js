@@ -187,8 +187,9 @@ function saveChanges()
 				resetData();
 			}
 		}
-		//runCommandsWithCallback(mainCommands, callback);
-		alert(mainCommands);
+		if(confirm('These commands will be run:\n' + mainCommands.join('\n'))) {
+			runCommandsWithCallback(mainCommands, callback);
+		}
 	}
 	else { disableSaveButton(); }
 }
@@ -1228,18 +1229,24 @@ function configureFastRoaming(serviceSets, fastRoamingEnabled, fastRoamingMode)
 	var changed = false;
 	var ssid = serviceSets[0].ssid;
 	var r0kh = [], r1kh = [];
+	var nasIds = {};
+	var macInfo = getMacAddressesOfServiceSets(serviceSets);
+	macInfo.forEach(r => {
+		nasIds[r.ap + '.' + r.iface] = r.macAddr.replaceAll(':', '');
+	});
 	if(fastRoamingEnabled && ['auto', 'static'].includes(fastRoamingMode)) {
 		var oldR0kh = managedAPs.find(ap => ap.hostName === serviceSets[0].ap)
 			.config.get('wireless', serviceSets[0].iface, 'r0kh');
 		var password = oldR0kh && isArray(oldR0kh) && oldR0kh.split(',').at(-1);
-		if (!password || password.length < 32) {
-			password = randomHexString(32);
-		}
-		if (fastRoamingMode === 'auto') {
+		if (!password || password.length < 32) { password = randomHexString(32);	}
+		if (fastRoamingMode === 'auto')
+		{
 			r0kh.push('ff:ff:ff:ff:ff:ff,*,' + password);
 			r1kh.push('00:00:00:00:00:00,00:00:00:00:00:00,' + password);
-		} else {
-			getMacAddressesOfServiceSets(serviceSets).map(r => r.macAddr).forEach(bssid => {
+		}
+		else
+		{
+			macInfo.map(r => r.macAddr).forEach(bssid => {
 				var nasid = bssid.replaceAll(':', '');
 				r0kh.push(`${bssid},${nasid},${password}`);
 				r1kh.push(`${bssid},${bssid},${password}`);
@@ -1251,6 +1258,8 @@ function configureFastRoaming(serviceSets, fastRoamingEnabled, fastRoamingMode)
 			(ap, radio, iface) => {
 				if(fastRoamingEnabled)
 				{
+					changed |= checkAndSetUciValue(ap, iface, 'nasid',
+						nasIds[ap.hostName + '.' + iface]);
 					if(['auto', 'static'].includes(fastRoamingMode))
 					{
 						changed |= checkAndSetUciValue(ap, iface, 'r0kh', r0kh);
