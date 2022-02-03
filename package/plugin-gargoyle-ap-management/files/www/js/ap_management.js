@@ -322,8 +322,8 @@ function getCommonVlanOfServiceSets(serviceSets)
 function gatherServiceSets(aps) {
 	var gatheredServiceSets = [];
 	aps.forEach(ap => {
-		ap.config.getAllSectionsOfType("wireless", "wifi-iface")
-			.filter(iface => ap.config.get("wireless", iface, "mode") === 'ap')
+		ap.config.getAllSectionsOfType('wireless', 'wifi-iface')
+			.filter(iface => ap.config.get('wireless', iface, 'mode') === 'ap')
 			.forEach(iface => {
 				var serviceSet = {'ap': ap.hostName, 'iface': iface};
 				ap.config.getAllOptionsInSection('wireless', iface + '\\.', true)
@@ -392,7 +392,7 @@ function buildSSIDtable()
 					o => changeValueOfBooleanSSIDproperty(x, 'isolate', o.target.checked)),
 			createCheckbox(x[0].ieee80211r === '1' && x[0].encryption.match(/^(psk|sae|wpa)/),
 					o => changeValueOfBooleanSSIDproperty(x, 'ieee80211r', o.target.checked),
-					x[0].encryption.match(/^(psk|sae|wpa)/)),
+					x[0].encryption.match(/^(psk|sae|wpa)/) && allServiceSetsHaveMacAddresses(x)),
 			createEditButton(editSSIDmodal)]);
 	ssidTable = createTable(
 		[apmS.SSID, apmS.security, apmS.aps, 'VLAN', apmS.enabled, apmS.hidden, apmS.isolate,
@@ -901,12 +901,12 @@ function getMacAddressesOfServiceSets(serviceSets)
 {
 	return serviceSets.map(
 		serviceSet => {
-			var ap =managedAPs.find(ap=>ap.hostName === serviceSet.ap);
+			var ap = managedAPs.find(ap=>ap.hostName === serviceSet.ap);
 			var r = { 'ap': serviceSet.ap, 'radio': serviceSet.device, 'iface': serviceSet.iface };
-			r.device = Object.keys(ap.wifiInfo).find(devName=>{
+			r.device = Object.keys(ap.wifiInfo).find(devName => {
 				var dev = ap.wifiInfo[devName];
 				return dev['ESSID']===serviceSet.ssid &&
-					ap.radios.find(radio=>radio.phy===dev['PHY name']).radio===serviceSet.device;
+					ap.radios.find(radio => radio.phy===dev['PHY name']).radio===serviceSet.device;
 			});
 			r.macAddr = r.device && ap.wifiInfo[r.device]['Access Point'];
 			return r;
@@ -925,13 +925,23 @@ function getServiceSetsFor(ssid, apAndRadioList)
 			&& apAndRadioList.includes(getApWithRadioFromServiceSet(serviceSets[0])));
 }
 
+function getEditSsidModalButtons(editRow) {
+	return [
+		{
+			"title": UI.CApplyChanges,
+			"classes": "btn btn-primary",
+			"function": function () {
+				editSSID(editRow);
+			}
+		},
+		"defaultDiscard"
+	];
+}
+
 function editSSIDmodal()
 {
 	var editRow = this.parentNode.parentNode;
-	var modalButtons = [
-		{"title" : UI.CApplyChanges, "classes" : "btn btn-primary", "function" : function() { editSSID(editRow); } },
-		"defaultDiscard"
-	];
+	var modalButtons = getEditSsidModalButtons(editRow);
 	var editValues = function(i) { return editRow.childNodes[i].firstChild.data; };
 	var ssid = editValues(0);
 	var selectedRadios = editValues(2).split(/, /);
@@ -949,28 +959,34 @@ function editSSIDmodal()
 		encryption = [encryption[0], encryption.slice(1).join('+').replace(/aes/, 'ccmp')];
 	}
 	else { encryption.push('ccmp'); }
-	var fastRoamingModes = { 'auto' : apmS.autoDiscovery, 'static': apmS.staticConfiguration,
-		'local': apmS.localKeyGeneration};
-	if(!encryption[0].match(/^psk|^sae/)) { delete fastRoamingModes.local; }
-	if(!allServiceSetsHaveMacAddresses(serviceSets)) { delete fastRoamingModes.static; }
+	var fastRoamingModes = { };
+	if(allServiceSetsHaveMacAddresses(serviceSets))
+	{
+		fastRoamingModes.auto = apmS.autoDiscovery;
+		fastRoamingModes.static = apmS.staticConfiguration
+		if(encryption[0].match(/^psk|^sae/)) { fastRoamingModes.local = apmS.localKeyGeneration; }
+	}
 	var modalElements = [
 		{'id': 'edit_ssid_ssid', 'value': ssid},
 		{'id': 'edit_ssid_aps', 'values': selectedRadios, 'options': allRadios},
-		{'id': 'edit_ssid_vlan', 'value': getCommonVlanOfServiceSets(serviceSets), 'options': availableVlansMap},
+		{'id': 'edit_ssid_vlan', 'value': getCommonVlanOfServiceSets(serviceSets),
+			'options': availableVlansMap},
 		{'id': 'edit_ssid_encryption', 'value': encryption[0], 'options': getWifiEncryptionMap()},
 		{'id': 'edit_ssid_encryption_cipher', 'value': encryption[0] !== 'wep' ? encryption[1] : 'ccmp',
 			'options': encryptionCiphers},
 		{'id': 'edit_ssid_encryption_key', 'value': serviceSets[0].key},
 		{'id': 'edit_ssid_radius_server', 'value': serviceSets[0].server},
 		{'id': 'edit_ssid_radius_port', 'value': getOption('port')},
-		{'id': 'edit_ssid_wep_mode', 'value': encryption[0] === 'wep' && encryption[1] ? encryption[1] : 'open'},
+		{'id': 'edit_ssid_wep_mode',
+			'value': encryption[0] === 'wep' && encryption[1] ? encryption[1] : 'open'},
 		{'id': 'edit_ssid_wep_key', 'value': serviceSets[0].key},
 		{'id': 'edit_ssid_wep_key1', 'value': serviceSets[0].key1},
 		{'id': 'edit_ssid_wep_key2', 'value': serviceSets[0].key2},
 		{'id': 'edit_ssid_wep_key3', 'value': serviceSets[0].key3},
 		{'id': 'edit_ssid_wep_key4', 'value': serviceSets[0].key4},
 		{'id': 'edit_ssid_mobility_domain', 'value': getOption('mobility_domain')},
-		{'id': 'edit_ssid_fast_roaming_mode', 'options' : fastRoamingModes,	'value': getFastRoamingMode(getOption)}
+		{'id': 'edit_ssid_fast_roaming_mode', 'options' : fastRoamingModes,
+			'value': getFastRoamingMode(getOption)}
 	];
 	modalPrepare('access_points_edit_ssid_modal', apmS.editSSID, modalElements, modalButtons);
 	[{'id': 'edit_ssid_enabled', 'value': getOption('disabled') === '0'},
@@ -1003,10 +1019,14 @@ function getOptionValueIndex(selectElement, value)
 function showCorrespondingFieldsInSsidEditModal()
 {
 	var wepRowIds = ['wep_mode', 'wep_key', 'wep_key1', 'wep_key2', 'wep_key3', 'wep_key4'];
-	var pskRowIds = ['encryption_key', 'encryption_cipher', 'ieee80211r', 'mobility_domain', 'fast_roaming_mode',
+	var fastRoamingRowIds = ['ieee80211r', 'mobility_domain', 'fast_roaming_mode',
 		'pmk_r1_push', 'ft_over_ds'];
+	var pskRowIds = ['encryption_key', 'encryption_cipher'];
+	var fastRoamingModeSelect = document.getElementById('edit_ssid_fast_roaming_mode');
+	var fastRoamingAllowed = fastRoamingModeSelect.options.length > 0;
+	if(fastRoamingAllowed) { pskRowIds = pskRowIds.concat(fastRoamingRowIds); }
 	var wpaRowIds = [...pskRowIds, 'radius_server', 'radius_port'];
-	var allRowIds = union(wepRowIds, pskRowIds, wpaRowIds);
+	var allRowIds = union(wepRowIds, pskRowIds, wpaRowIds, fastRoamingRowIds);
 	var showOnly = function(ids) {
 		complement(allRowIds, ids).forEach(id => changeVisibilityOfEditSsidField(id, false));
 		ids.forEach(id => changeVisibilityOfEditSsidField(id, true));
@@ -1016,25 +1036,26 @@ function showCorrespondingFieldsInSsidEditModal()
 	else if(selectedSecurity.match(/^psk|^sae/)) { showOnly(pskRowIds); }
 	else if(selectedSecurity.match(/^wpa/)) { showOnly(wpaRowIds); }
 	else { showOnly([]); }
-	var fastRoamingEnabled = document.getElementById('edit_ssid_ieee80211r').checked;
-	['mobility_domain', 'fast_roaming_mode', 'pmk_r1_push', 'ft_over_ds']
-		.forEach(id => changeVisibilityOfEditSsidField(id, fastRoamingEnabled));
-	var fastRoamingModeSelect = document.getElementById('edit_ssid_fast_roaming_mode');
-	var selectedFastRoamingMode = fastRoamingModeSelect.value;
-	var fastRoamingModeSelectLocalIndex = getOptionValueIndex(fastRoamingModeSelect, 'local');
-	if(selectedSecurity.match(/^psk|^sae/) && fastRoamingModeSelectLocalIndex < 0)
+	if(fastRoamingAllowed)
 	{
-		fastRoamingModeSelect.options.add(createOption('local', apmS.localKeyGeneration))
-	}
-	else if(!selectedSecurity.match(/^psk|^sae/) && fastRoamingModeSelectLocalIndex >= 0)
-	{
-		if(selectedFastRoamingMode === 'local') { selectedFastRoamingMode = undefined; }
-		fastRoamingModeSelect.options.remove(fastRoamingModeSelectLocalIndex);
-	}
-	fastRoamingModeSelect.value = selectedFastRoamingMode;
-	changeVisibilityOfEditSsidField('pmk_r1_push',
-		selectedSecurity.match(/^psk|^sae|^wpa/) && fastRoamingEnabled
+		var fastRoamingEnabled = document.getElementById('edit_ssid_ieee80211r').checked;
+		['mobility_domain', 'fast_roaming_mode', 'pmk_r1_push', 'ft_over_ds']
+			.forEach(id => changeVisibilityOfEditSsidField(id, fastRoamingEnabled));
+		var selectedFastRoamingMode = fastRoamingModeSelect.value;
+		var fastRoamingModeSelectLocalIndex = getOptionValueIndex(fastRoamingModeSelect, 'local');
+		if (selectedSecurity.match(/^psk|^sae/) && fastRoamingModeSelectLocalIndex < 0) {
+			fastRoamingModeSelect.options.add(createOption('local', apmS.localKeyGeneration))
+		} else if (!selectedSecurity.match(/^psk|^sae/) && fastRoamingModeSelectLocalIndex >= 0) {
+			if (selectedFastRoamingMode === 'local') {
+				selectedFastRoamingMode = undefined;
+			}
+			fastRoamingModeSelect.options.remove(fastRoamingModeSelectLocalIndex);
+		}
+		fastRoamingModeSelect.value = selectedFastRoamingMode;
+		changeVisibilityOfEditSsidField('pmk_r1_push',
+			selectedSecurity.match(/^psk|^sae|^wpa/) && fastRoamingEnabled
 			&& fastRoamingModeSelect.value !== 'local');
+	}
 }
 
 function ajdustAvailableVlansInSsidEditModal()
@@ -1096,14 +1117,11 @@ function editSSID(editRow)
 				!(mobilityDomainField.validity.valid && mobilityDomainField.value))))) {
 		return;
 	}
-	var editValues = function(i)
-	{
-		var cell = editRow.childNodes[i].firstChild;
-		return cell.type === 'checkbox' ? cell.checked : cell.data;
-	};
-	var oldSsid = editValues(0);
-	var oldRadios = editValues(2).split(/, /);
-	var serviceSets = getServiceSetsFor(oldSsid, oldRadios);
+	var newSsid = newSsidField.value;
+	var isExistingServiceSet = !!editRow;
+	var oldSsid = isExistingServiceSet ? editRow.childNodes[0].firstChild.data : newSsid;
+	var oldRadios =  isExistingServiceSet ? editRow.childNodes[2].firstChild.data.split(/, /) : [];
+	var serviceSets = isExistingServiceSet ? getServiceSetsFor(oldSsid, oldRadios) : [];
 	var newEnabled = getField('enabled').checked;
 	var selectedAps = getSelectedOptionValues('edit_ssid_aps');
 	var removedRadios = [], keptRadios = [], addedRadios = [];
@@ -1121,6 +1139,7 @@ function editSSID(editRow)
 			ap.config.set('wireless', iface, '', 'wifi-iface');
 			ap.config.set('wireless', iface, 'ssid', oldSsid);
 			ap.config.set('wireless', iface, 'device', radio);
+			ap.config.set('wireless', iface, 'mode', 'ap');
 			serviceSets.push({'ap': ap.hostName, 'iface': iface, 'device': radio, 'ssid': oldSsid});
 			changed = true;
 		}
@@ -1159,10 +1178,11 @@ function editSSID(editRow)
 		{
 			changed |= checkAndSetUciValue(ap, iface, 'mobility_domain', mobilityDomainField.value);
 		}
-		changed |= checkAndSetUciValue(ap, iface, 'ssid', newSsidField.value);
+		changed |= checkAndSetUciValue(ap, iface, 'ssid', newSsid);
 	}));
 
-	changed |= configureFastRoaming(serviceSets, fastRoamingEnabled, fastRoamingModeField.value);
+	changed |= isExistingServiceSet &&
+		configureFastRoaming(serviceSets, fastRoamingEnabled, fastRoamingModeField.value);
 
 	if(changed)
 	{
@@ -1230,27 +1250,29 @@ function configureFastRoaming(serviceSets, fastRoamingEnabled, fastRoamingMode)
 	var ssid = serviceSets[0].ssid;
 	var r0kh = [], r1kh = [];
 	var nasIds = {};
-	var macInfo = getMacAddressesOfServiceSets(serviceSets);
-	macInfo.forEach(r => {
-		nasIds[r.ap + '.' + r.iface] = r.macAddr.replaceAll(':', '');
-	});
-	if(fastRoamingEnabled && ['auto', 'static'].includes(fastRoamingMode)) {
-		var oldR0kh = managedAPs.find(ap => ap.hostName === serviceSets[0].ap)
-			.config.get('wireless', serviceSets[0].iface, 'r0kh');
-		var password = oldR0kh && isArray(oldR0kh) && oldR0kh.split(',').at(-1);
-		if (!password || password.length < 32) { password = randomHexString(32);	}
-		if (fastRoamingMode === 'auto')
+	fastRoamingEnabled &= allServiceSetsHaveMacAddresses(serviceSets);
+	if(fastRoamingEnabled)
+	{
+		var macInfo = getMacAddressesOfServiceSets(serviceSets);
+		macInfo.forEach(r => { nasIds[r.ap + '.' + r.iface] = r.macAddr.replaceAll(':', ''); });
+		if (['auto', 'static'].includes(fastRoamingMode))
 		{
-			r0kh.push('ff:ff:ff:ff:ff:ff,*,' + password);
-			r1kh.push('00:00:00:00:00:00,00:00:00:00:00:00,' + password);
-		}
-		else
-		{
-			macInfo.map(r => r.macAddr).forEach(bssid => {
-				var nasid = bssid.replaceAll(':', '');
-				r0kh.push(`${bssid},${nasid},${password}`);
-				r1kh.push(`${bssid},${bssid},${password}`);
-			});
+			var oldR0kh = managedAPs.find(ap => ap.hostName === serviceSets[0].ap)
+				.config.get('wireless', serviceSets[0].iface, 'r0kh');
+			var password = oldR0kh && isArray(oldR0kh) && oldR0kh.split(',').at(-1);
+			if (!password || password.length < 32) {
+				password = randomHexString(32);
+			}
+			if (fastRoamingMode === 'auto') {
+				r0kh.push('ff:ff:ff:ff:ff:ff,*,' + password);
+				r1kh.push('00:00:00:00:00:00,00:00:00:00:00:00,' + password);
+			} else {
+				macInfo.map(r => r.macAddr).forEach(bssid => {
+					var nasid = bssid.replaceAll(':', '');
+					r0kh.push(`${bssid},${nasid},${password}`);
+					r1kh.push(`${bssid},${bssid},${password}`);
+				});
+			}
 		}
 	}
 	getApWithRadioListFromServiceSets(serviceSets).forEach(
@@ -1342,5 +1364,38 @@ function checkAndAlertMissingVlanConfiguration(vlan, apsToSearch)
 
 function addSSID()
 {
-
+	var modalButtons = getEditSsidModalButtons();
+	var allRadios = convertArrayToOptionsMap(
+		flatten(managedAPs.map(ap => ap.radios.map(radio => ap.hostName + '.' + radio.radio))));
+	var ifaceDefaults = uciDefaults.wireless['wifi-iface'];
+	var modalElements = [
+		{'id': 'edit_ssid_ssid', 'value': ifaceDefaults.ssid},
+		{'id': 'edit_ssid_aps', 'values': [], 'options': allRadios},
+		{'id': 'edit_ssid_vlan', 'value': '1', 'options': []},
+		{'id': 'edit_ssid_encryption', 'value': ifaceDefaults.encryption,
+			'options': getWifiEncryptionMap()},
+		{'id': 'edit_ssid_encryption_cipher', 'value': '', 'options': encryptionCiphers},
+		{'id': 'edit_ssid_encryption_key', 'value': ''},
+		{'id': 'edit_ssid_radius_server', 'value': ''},
+		{'id': 'edit_ssid_radius_port', 'value': ifaceDefaults.port},
+		{'id': 'edit_ssid_wep_mode', 'value': 'open'},
+		{'id': 'edit_ssid_wep_key', 'value': ''},
+		{'id': 'edit_ssid_wep_key1', 'value': ''},
+		{'id': 'edit_ssid_wep_key2', 'value': ''},
+		{'id': 'edit_ssid_wep_key3', 'value': ''},
+		{'id': 'edit_ssid_wep_key4', 'value': ''},
+		{'id': 'edit_ssid_mobility_domain',	'value': ifaceDefaults.mobility_domain},
+		{'id': 'edit_ssid_fast_roaming_mode', 'options' : { }, 'value': ''}
+	];
+	modalPrepare('access_points_edit_ssid_modal', apmS.addSSID, modalElements, modalButtons);
+	[{'id': 'edit_ssid_enabled', 'value': ifaceDefaults.disabled === '0'},
+		{'id': 'edit_ssid_hidden', 'value': ifaceDefaults.hidden === '1'},
+		{'id': 'edit_ssid_isolate', 'value': ifaceDefaults.isolate === '1'},
+		{'id': 'edit_ssid_ieee80211r', 'value': ifaceDefaults.ieee80211r === '1'},
+		{'id': 'edit_ssid_pmk_r1_push', 'value': ifaceDefaults.pmk_r1_push === '1'},
+		{'id': 'edit_ssid_ft_over_ds', 'value': ifaceDefaults.ft_over_ds === '1'},
+		{'id': 'edit_ssid_disassoc_low_ack', 'value': ifaceDefaults.disassoc_low_ack === '1'}
+	].forEach(x => { document.getElementById(x.id).checked = x.value; });
+	showCorrespondingFieldsInSsidEditModal();
+	openModalWindow('access_points_edit_ssid_modal');
 }
