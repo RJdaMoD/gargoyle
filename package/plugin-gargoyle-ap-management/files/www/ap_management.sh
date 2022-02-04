@@ -101,6 +101,28 @@ originalManagedAPs = [];
 	</div>
 </div>
 
+<div class="row">
+	<div class="col-lg-5">
+		<div class="panel panel-default">
+			<div class="panel-heading">
+				<h3 class="panel-title"><%~ ap_management.wirelessNetworks %></h3>
+			</div>
+			<div class="panel-body">
+
+				<div id="bssid_table_heading_container" class="row form-group">
+					<span class="col-xs-12" style="text-decoration:underline">
+						<%~ ap_management.activeWirelessNetworks %>:
+					</span>
+				</div>
+
+				<div class="row form-group">
+					<div id="bssid_table_container" class="table-responsive col-xs-12"></div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
 <div id="firefox3_bug_correct" style="display:none">
 	<input type="text" value="firefox3_bug" />
 </div>

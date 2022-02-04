@@ -51,4 +51,7 @@ apmS.staticConfiguration="Static Configuration";
 apmS.localKeyGeneration="Local Key Genaration";
 apmS.missingVlanOnAps="There is missing VLAN-configurtion for VLAN $VLAN on these access points: ";
 apmS.name="Name";
+apmS.wirelessNetworks="Wireless Networks";
+apmS.managedWirelessNetworks="Mananged Wireless Networks";
+apmS.activeWirelessNetworks="Active Wireless Networks";
 

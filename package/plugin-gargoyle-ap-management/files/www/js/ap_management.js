@@ -219,6 +219,7 @@ function buildTables()
 	buildAccessPointTable();
 	buildRadioTable();
 	buildSSIDtable();
+	buildBssidTable();
 }
 
 function buildAccessPointTable() {
@@ -407,6 +408,23 @@ function buildSSIDtable()
 	tsInit();
 }
 
+function buildBssidTable()
+{
+	var bssidTable = flatten(gatherServiceSets(managedAPs).map(x => getMacAddressesOfServiceSets(x)))
+		.filter(y => y.macAddr).map(y => [y.ssid, y.ap, y.radio, y.macAddr]);
+	console.log(bssidTable);
+	bssidTable = createTable(
+		['SSID', 'AP', apmS.radio, 'BSSID'],
+		bssidTable, 'bssid_table', true, false, removeBSSIDfromTable);
+	var tableContainer = document.getElementById('bssid_table_container');
+	if(tableContainer.firstChild != null) { tableContainer.removeChild(tableContainer.firstChild); }
+	tableContainer.appendChild(bssidTable);
+	TSort_Data = ['bssid_table', 's', 's', 's', 's'];
+	tsRegister();
+	tsSetTable('bssid_table');
+	tsInit();
+
+}
 function addAccessPoint()
 {
 	var ap = { "name" : document.getElementById("add_ap_name").value };
@@ -870,6 +888,18 @@ function removeSSIDfromTable(table, row)
 	enableSaveButton();
 }
 
+function removeBSSIDfromTable(table, row)
+{
+	var [ssid, apName, radio] = [0, 1, 2].map(i => row.childNodes[i].firstChild.data);
+	var ap = managedAPs.find(ap => ap.hostName === apName);
+	ap.config.getAllSectionsOfType('wireless', 'wifi-iface')
+		.filter(iface => ap.config.get('wireless', iface, 'ssid') === ssid
+			&& ap.config.get('wireless', iface, 'device') === radio)
+		.forEach(iface => { ap.config.removeSection('wireless', iface)});
+	buildSSIDtable();
+	enableSaveButton();
+}
+
 function changeValueOfBooleanSSIDproperty(serviceSets, option, checked)
 {
 	var newValue = checked ? '1' : '0';
@@ -902,11 +932,15 @@ function getMacAddressesOfServiceSets(serviceSets)
 	return serviceSets.map(
 		serviceSet => {
 			var ap = managedAPs.find(ap=>ap.hostName === serviceSet.ap);
-			var r = { 'ap': serviceSet.ap, 'radio': serviceSet.device, 'iface': serviceSet.iface };
+			var r = {
+				'ap': serviceSet.ap,
+				'radio': serviceSet.device,
+				'iface': serviceSet.iface,
+				'ssid': serviceSet.ssid };
 			r.device = Object.keys(ap.wifiInfo).find(devName => {
 				var dev = ap.wifiInfo[devName];
-				return dev['ESSID']===serviceSet.ssid &&
-					ap.radios.find(radio => radio.phy===dev['PHY name']).radio===serviceSet.device;
+				return dev['ESSID'] === serviceSet.ssid &&
+					ap.radios.find(radio => radio.phy === dev['PHY name']).radio === serviceSet.device;
 			});
 			r.macAddr = r.device && ap.wifiInfo[r.device]['Access Point'];
 			return r;
@@ -995,7 +1029,8 @@ function editSSIDmodal()
 		{'id': 'edit_ssid_ieee80211r', 'value': getOption('ieee80211r') === '1'},
 		{'id': 'edit_ssid_pmk_r1_push', 'value': getOption('pmk_r1_push') === '1'},
 		{'id': 'edit_ssid_ft_over_ds', 'value': getOption('ft_over_ds') === '1'},
-		{'id': 'edit_ssid_disassoc_low_ack', 'value': getOption('disassoc_low_ack') === '1'}
+		{'id': 'edit_ssid_disassoc_low_ack', 'value': getOption('disassoc_low_ack') === '1'},
+		{'id': 'edit_ssid_bss_transition', 'value': getOption('bss_transition') === '1'}
 	].forEach(x => { document.getElementById(x.id).checked = x.value; });
 	showCorrespondingFieldsInSsidEditModal();
 	openModalWindow('access_points_edit_ssid_modal');
@@ -1147,7 +1182,8 @@ function editSSID(editRow)
 	var modifiedAps = addedRadios.concat(keptRadios);
 	modifiedAps.forEach(processAPifaceForServiceSet(oldSsid, (ap, radio, iface) => {
 		changed |= checkAndSetUciValue(ap, iface, 'disabled', newEnabled ? '0' : '1');
-		['hidden', 'isolate', 'disassoc_low_ack'].concat(fastRoamingEnabled ? ['ft_over_ds', 'pmk_r1_push'] : [])
+		['hidden', 'isolate', 'disassoc_low_ack', 'bss_transition'].concat(
+				fastRoamingEnabled ? ['ft_over_ds', 'pmk_r1_push'] : [])
 			.forEach(id => {
 				changed |= checkAndSetUciValue(ap, iface, id, getField(id).checked ? '1' : '0')
 			});
