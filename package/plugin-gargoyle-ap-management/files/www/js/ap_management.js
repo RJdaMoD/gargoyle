@@ -250,14 +250,18 @@ function buildAccessPointTable() {
 function buildRadioTable() {
 	var radioTable = flatten(
 		managedAPs.map(ap => ap.config.getAllSectionsOfType("wireless","wifi-device")
-			.map(radio => {
+			.map(radioName => {
 				var opts = ["hwmode", "channel", "hwmode", "htmode", "txpower", "country"]
-					.map(opt => ap.config.get("wireless", radio, opt));
+					.map(opt => ap.config.get("wireless", radioName, opt));
 				opts[0] = channelBandMap[opts[0]];
-				var chan = ap.radios.find(x => x.radio === radio).bands.find(x => x.band === channelBandIndex[opts[2]])
+				var radio = ap.radios.find(x => x.radio === radioName);
+				var chan = radio.bands.find(x => x.band === channelBandIndex[opts[2]])
 					.channels.find(x => x.channel == opts[1]);
 				opts[2] = chan ? chan.frequency/1e6 + "" : "?";
-				return [ap.hostName, radio].concat(opts).concat(
+				var devName = Object.keys(ap.wifiInfo)
+					.find(devName => ap.wifiInfo[devName]['PHY name'] === radio.phy);
+				if(devName) { opts[4] = ap.wifiInfo[devName]['Tx-Power']; }
+				return [ap.hostName, radioName].concat(opts).concat(
 					originalManagedAPs.find(origAp => origAp.name === ap.name) ?
 						createEditButton(editRadioModal) : "");
 			})));
@@ -412,7 +416,6 @@ function buildBssidTable()
 {
 	var bssidTable = flatten(gatherServiceSets(managedAPs).map(x => getMacAddressesOfServiceSets(x)))
 		.filter(y => y.macAddr).map(y => [y.ssid, y.ap, y.radio, y.macAddr]);
-	console.log(bssidTable);
 	bssidTable = createTable(
 		['SSID', 'AP', apmS.radio, 'BSSID'],
 		bssidTable, 'bssid_table', true, false, removeBSSIDfromTable);
