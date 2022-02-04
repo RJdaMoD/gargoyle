@@ -235,6 +235,15 @@
 						</span>
 					</div>
 
+					<div class='row form-group' id='edit_ssid_bss_transition_container'>
+						<label class='col-xs-6' id='edit_ssid_bss_transition_label' for='edit_ssid_bss_transition'>
+							BSS Transition Management:
+						</label>
+						<span class='col-xs-6'>
+							<input type='checkbox' id='edit_ssid_bss_transition' class='form-control'/>
+						</span>
+					</div>
+
 					<div class='row form-group' id='edit_ssid_disassoc_low_ack_container'>
 						<label class='col-xs-6' id='edit_ssid_disassoc_low_ack_label' for='edit_ssid_disassoc_low_ack'>
 							<%~ ap_management.disassocLowAck %>:
