@@ -217,6 +217,7 @@ function resetData()
 function buildTables()
 {
 	buildAccessPointTable();
+	buildVlanTable();
 	buildRadioTable();
 	buildSSIDtable();
 	buildBssidTable();
@@ -428,6 +429,39 @@ function buildBssidTable()
 	tsInit();
 
 }
+
+function buildVlanTable()
+{
+	var vlanTable = flatten(
+		managedAPs.map(ap => ap.config.getAllSectionsOfType('network','switch_vlan')
+			.map(switchVlan => {
+				var [vlan,ports] = ['vlan','ports'].map(opt=>ap.config.get('network',switchVlan,opt));
+				return [ap.hostName, vlan, getVlanBridge(ap,vlan)||'', ports,
+					vlan !== '1' ? createEditButton(editVLANmodal) : ''];
+			})
+		)
+	);
+	vlanTable = createTable(
+		['AP', 'VLAN', apmS.bridge, apmS.ports],
+		vlanTable, 'vlan_table', true, false, removeVLANfromTable);
+	var vlanTableRows = vlanTable.getElementsByTagName('tr'); // remove "Remove"-button for VLAN 1
+	for(var i=0; i<vlanTableRows.length; i++)
+	{
+		var cells = vlanTableRows[i].getElementsByTagName('td');
+		if(cells.length > 1 && cells[1].innerText === '1')
+		{
+			cells[cells.length - 1].innerHTML = "<span/>";
+		}
+	}
+	var tableContainer = document.getElementById('vlan_table_container');
+	if(tableContainer.firstChild != null) { tableContainer.removeChild(tableContainer.firstChild); }
+	tableContainer.appendChild(vlanTable);
+	TSort_Data = ['vlan_table', 's', 'i', 's', 's', 's'];
+	tsRegister();
+	tsSetTable('vlan_table');
+	tsInit();
+}
+
 function addAccessPoint()
 {
 	var ap = { "name" : document.getElementById("add_ap_name").value };
@@ -901,6 +935,16 @@ function removeBSSIDfromTable(table, row)
 		.forEach(iface => { ap.config.removeSection('wireless', iface)});
 	buildSSIDtable();
 	enableSaveButton();
+}
+
+function editVLANmodal(editRow)
+{
+
+}
+
+function removeVLANfromTable()
+{
+
 }
 
 function changeValueOfBooleanSSIDproperty(serviceSets, option, checked)

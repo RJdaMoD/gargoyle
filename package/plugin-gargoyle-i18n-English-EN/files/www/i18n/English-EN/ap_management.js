@@ -54,4 +54,7 @@ apmS.name="Name";
 apmS.wirelessNetworks="Wireless Networks";
 apmS.managedWirelessNetworks="Mananged Wireless Networks";
 apmS.activeWirelessNetworks="Active Wireless Networks";
-
+apmS.ports="Ports";
+apmS.bridge="Bridge";
+apmS.VLANs="Virtual Local Area Networks";
+apmS.managedVLANs="Managed Virtual Local Area Networks";

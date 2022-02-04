@@ -54,3 +54,7 @@ apmS.name="Name";
 apmS.wirelessNetworks="Drahtlose Netzwerke";
 apmS.managedWirelessNetworks="Verwaltete drahtlose Netzwerke";
 apmS.activeWirelessNetworks="Aktive drahtlose Netzwerke";
+apmS.ports="Buchsen";
+apmS.bridge="Brücke";
+apmS.VLANs="Virtuelle Netzwerke";
+apmS.managedVLANs="Verwaltete virtuelle Netzwerke";
