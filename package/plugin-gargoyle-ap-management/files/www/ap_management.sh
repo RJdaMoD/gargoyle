@@ -102,7 +102,26 @@ originalManagedAPs = [];
 </div>
 
 <div class="row">
-	<div class="col-lg-5">
+	<div class="col-lg-6">
+		<div class="panel panel-default">
+			<div class="panel-heading">
+				<h3 class="panel-title"><%~ ap_management.VLANs %></h3>
+			</div>
+			<div class="panel-body">
+
+				<div id="vlan_table_heading_container" class="row form-group">
+					<span class="col-xs-12" style="text-decoration:underline">
+						<%~ ap_management.managedVLANs %>:
+					</span>
+				</div>
+
+				<div class="row form-group">
+					<div id="vlan_table_container" class="table-responsive col-xs-12"></div>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div class="col-lg-6">
 		<div class="panel panel-default">
 			<div class="panel-heading">
 				<h3 class="panel-title"><%~ ap_management.wirelessNetworks %></h3>
