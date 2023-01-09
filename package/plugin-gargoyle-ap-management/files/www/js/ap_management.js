@@ -435,24 +435,14 @@ function buildVlanTable()
 	var vlanTable = flatten(
 		managedAPs.map(ap => ap.config.getAllSectionsOfType('network','switch_vlan')
 			.map(switchVlan => {
-				var [vlan,ports] = ['vlan','ports'].map(opt=>ap.config.get('network',switchVlan,opt));
-				return [ap.hostName, vlan, getVlanBridge(ap,vlan)||'', ports,
-					vlan !== '1' ? createEditButton(editVLANmodal) : ''];
+				var [vlan,ports] = ['vlan','ports'].map(opt=>ap.config.get('network', switchVlan, opt));
+				return [ap.hostName, vlan, getVlanBridge(ap, vlan), ports];
 			})
+			.filter(row => row[2])
 		)
 	);
-	vlanTable = createTable(
-		['AP', 'VLAN', apmS.bridge, apmS.ports],
-		vlanTable, 'vlan_table', true, false, removeVLANfromTable);
-	var vlanTableRows = vlanTable.getElementsByTagName('tr'); // remove "Remove"-button for VLAN 1
-	for(var i=0; i<vlanTableRows.length; i++)
-	{
-		var cells = vlanTableRows[i].getElementsByTagName('td');
-		if(cells.length > 1 && cells[1].innerText === '1')
-		{
-			cells[cells.length - 1].innerHTML = "<span/>";
-		}
-	}
+	vlanTable = createTable(['AP', 'VLAN', apmS.bridge, apmS.ports],
+		vlanTable, 'vlan_table', false, false);
 	var tableContainer = document.getElementById('vlan_table_container');
 	if(tableContainer.firstChild != null) { tableContainer.removeChild(tableContainer.firstChild); }
 	tableContainer.appendChild(vlanTable);
@@ -935,16 +925,6 @@ function removeBSSIDfromTable(table, row)
 		.forEach(iface => { ap.config.removeSection('wireless', iface)});
 	buildSSIDtable();
 	enableSaveButton();
-}
-
-function editVLANmodal(editRow)
-{
-
-}
-
-function removeVLANfromTable()
-{
-
 }
 
 function changeValueOfBooleanSSIDproperty(serviceSets, option, checked)
