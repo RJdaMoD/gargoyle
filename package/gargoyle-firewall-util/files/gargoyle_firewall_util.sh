@@ -1261,6 +1261,7 @@ restrict_local_interface() {
 			echo "$lif needs routing because of non-local allowed ip, thus allowing arp to $router_ip"
 			if [ "$is_router" != "0" ]; then
 				$EBIN -p ARP --arp-ip-dst $router_ip -j ACCEPT
+				$EBOUT -p ARP --arp-ip-src $router_ip -j ACCEPT
 			else
 				$EBFIN -p ARP --arp-ip-dst $router_ip -j ACCEPT
 				$EBFOUT -p ARP --arp-ip-src $router_ip -j ACCEPT
