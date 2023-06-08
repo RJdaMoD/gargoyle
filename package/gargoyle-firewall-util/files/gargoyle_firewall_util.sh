@@ -1254,6 +1254,7 @@ if [ -z "$dropTarget" ]; then
 			echo "$lif needs routing because of non-local allowed ip, thus allowing arp to $router_ip"
 			if [ "$is_router" != "0" ]; then
 			  $NFIN arp daddr ip "$router_ip" accept
+			  $NFOUT arp saddr ip "$router_ip" accept
 			else
 			  $NFFIN arp daddr ip "$router_ip" accept
 			  $NFFOUT arp saddr ip "$router_ip" accept
