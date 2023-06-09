@@ -767,17 +767,21 @@ isolate_guest_and_local_networks() {
 				local is_guest=$(ifconfig "$lif"	2>/dev/null | grep -i "$gmac")
 				if [ -n "$is_guest" ]; then
 					local wifi_iface=$(get_wifi_iface_for_mac "$gmac")
+					local allow_ipv6
 					local allowed_ips
 					local forbidden_ips
 					local allowed_servers
 					local logDrops
 					local dropTarget=drop
+					config_get allow_ipv6 "$wifi_iface" allow_ipv6
 					config_get allowed_ips "$wifi_iface" allowed_ips
 					config_get forbidden_ips "$wifi_iface" forbidden_ips
 					config_get allowed_servers "$wifi_iface" allowed_servers
 					config_get logDrops "$wifi_iface" logDrops
 					[ "$logDrops" = 1 ] && dropTarget=logAndDrop
-					echo "$lif with mac $gmac is wireless guest named $wifi_iface$(
+					echo "$lif with mac $gmac is wireless guest with$(
+                                                        [ "$allow_ipv6" != "1" ] && echo -n "out"
+                                                ) IPv6 named $wifi_iface$(
 							if [ -n "$allowed_ips" ]; then
 								echo -n " but has these local ips allowed: $allowed_ips"
 								if [ -n "$forbidden_ips" ]; then
@@ -792,7 +796,7 @@ isolate_guest_and_local_networks() {
 					#Allow access to WAN but not other LAN hosts for anyone on guest network - does not work for access points, better drop all traffic to local ips, see below
           #nft add rule bridge gfw forward iifname "$lif" oifname br-lan drop
 					restrict_guest_interface "$lif" $router_ip $lan_netmask $is_router \
-						"$allowed_ips" "$forbidden_ips" "$allowed_servers" $dropTarget
+						"$allow_ipv6" "$allowed_ips" "$forbidden_ips" "$allowed_servers" $dropTarget
 				fi
 			done
 			for lmac in $local_macs ; do
@@ -1149,10 +1153,11 @@ restrict_guest_interface() {
 	local router_ip="$2"
 	local lan_netmask="$3"
 	local is_router="$4"
-	local allowed_ips="$5"
-	local forbidden_ips="$6"
-	local allowed_servers="$7"
-	local dropTarget="$8"
+	local allow_ipv6="$5"
+	local allowed_ips="$6"
+	local forbidden_ips="$7"
+	local allowed_servers="$8"
+	local dropTarget="$9"
 	if [ -z "$dropTarget" ]; then
 	  drop=drop
 	else
@@ -1200,21 +1205,22 @@ restrict_guest_interface() {
   $NFFIN ip daddr "$router_ip/$lan_netmask" $drop
   $NFFOUT ip saddr "$router_ip/$lan_netmask" $drop
   $NFOUT ip saddr "$router_ip/$lan_netmask" $drop
-	#no IPv6 in guest network unless we are router since we would have to check ip6 addresses otherwise
-	if [ "$is_router" = "1" ]; then
-	  $NFIN ip6 nexthdr icmpv6 accept
-	  $NFOUT ip6 nexthdr icmpv6 accept
-	  router_ip6_global=$(echo $ip6net_global | sed -E 's#/[0-9]+$##')
-	  $NFIN ip6 daddr $router_ip6_global udp dport 53 accept
-    $NFOUT ip6 saddr $router_ip6_global udp sport 53 accept
-    router_ip6_local=$(ip addr show $bridgeDev | grep $(echo $ip6net_local | sed -E 's#/[0-9]+$##') | sed -E 's|^.*inet6 ([^ ]*) ([^ ]*) .*$|\1|' | sed -E 's#/[0-9]+$##')
-    $NFIN ip6 daddr $router_ip6_local udp dport 53 accept
-    $NFOUT ip6 saddr $router_ip6_local udp sport 53 accept
-	fi
-  $NFFIN oifname $bridgeDev ip6 daddr $ip6net_local $drop
-  $NFFOUT iifname $bridgeDev ip6 saddr $ip6net_local $drop
-  $NFFIN oifname $bridgeDev ip6 daddr != $ip6net_global accept
-  $NFFOUT iifname $bridgeDev ip6 saddr != $ip6net_global accept
+	if [ "$allow_ipv6" = "1" ]; then
+    if [ "$is_router" = "1" ]; then
+      $NFIN ip6 nexthdr icmpv6 accept
+      $NFOUT ip6 nexthdr icmpv6 accept
+      router_ip6_global=$(echo $ip6net_global | sed -E 's#/[0-9]+$##')
+      $NFIN ip6 daddr $router_ip6_global udp dport 53 accept
+      $NFOUT ip6 saddr $router_ip6_global udp sport 53 accept
+      router_ip6_local=$(ip addr show $bridgeDev | grep $(echo $ip6net_local | sed -E 's#/[0-9]+$##') | sed -E 's|^.*inet6 ([^ ]*) ([^ ]*) .*$|\1|' | sed -E 's#/[0-9]+$##')
+      $NFIN ip6 daddr $router_ip6_local udp dport 53 accept
+      $NFOUT ip6 saddr $router_ip6_local udp sport 53 accept
+    fi
+    $NFFIN oifname $bridgeDev ip6 daddr $ip6net_local $drop
+    $NFFOUT iifname $bridgeDev ip6 saddr $ip6net_local $drop
+    $NFFIN oifname $bridgeDev ip6 daddr != $ip6net_global accept
+    $NFFOUT iifname $bridgeDev ip6 saddr != $ip6net_global accept
+  fi
 	$NFIN meta protocol ip6 $drop
   $NFOUT meta protocol ip6 $drop
   $NFFIN meta protocol ip6 $drop
@@ -1335,20 +1341,21 @@ check_guest_or_local_or_censored_network() { # network, not wifi!
 	config_get logDrops "$iface" logDrops
 	[ "$logDrops" = 1 ] && dropTarget=logAndDrop
 	if [ "$is_guest_network" = "1" ]; then
-		echo "$ifname is guest network named $iface$(
-			if [ -n "$allowed_ips" ]; then
-				echo -n " but has these local ips allowed: $allowed_ips"
-				if [ -n "$forbidden_ips" ]; then
-					echo " except $forbidden_ips"
-				else
+		local allow_ipv6
+		config_get allow_ipv6 "$iface" allow_ipv6
+		echo "$ifname is guest network with$(
+				[ "$allow_ipv6" != "1" ] && echo -n "out"
+			) IPv6 named $iface$(
+				if [ -n "$allowed_ips" ]; then
+					echo -n " but has these local ips allowed: $allowed_ips"
+					[ -n "$forbidden_ips" ] && echo -n " except $forbidden_ips"
 					echo
-				fi
-			fi)"
+				fi)"
 		if [ -n "$allowed_servers" ]; then
 			echo "$ifname is allowed to host these servers: $allowed_servers"
 		fi
 		restrict_guest_interface "$ifname" $router_ip $lan_netmask $is_router \
-			"$allowed_ips" "$forbidden_ips" "$allowed_servers" $dropTarget
+			"$allow_ipv6" "$allowed_ips" "$forbidden_ips" "$allowed_servers" $dropTarget
 	fi
 	if [ "$is_local_network" = "1" ]; then
 		echo "$ifname is local network named $iface$(
