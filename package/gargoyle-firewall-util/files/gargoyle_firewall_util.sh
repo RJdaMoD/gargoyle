@@ -913,7 +913,7 @@ decompose_host_address_and_call_proc() {
 	local rc=0
 	if [ $(echo $address | grep -E "^/.*\.sh$" | wc -l) -eq 1 ]; then
 		echo "Executing $address..."
-		sh $address
+		sh $address $proc "$@"
 		return 0
 	elif [ $(echo $address | grep -E "^/" | wc -l) -eq 1 ]; then
 		for host in $(cat $address | grep -E "^ *(0\.0\.0\.0 |:: )? *[^ ]+ *$" \
