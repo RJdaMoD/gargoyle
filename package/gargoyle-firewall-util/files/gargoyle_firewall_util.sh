@@ -735,7 +735,7 @@ ip_in_subnet() {
 }
 
 isolate_guest_and_local_networks() {
-  # Purge bridge table
+  echo "Flushing bridge table..."
   nft delete table bridge gfw 2>/dev/null
   #Establish bridge table
   nft add table bridge gfw
@@ -754,6 +754,11 @@ isolate_guest_and_local_networks() {
 		 is_router="1"
 	fi
 	local lan_netmask=$(uci -p /tmp/state get network.lan.netmask)
+
+	if [ -f /etc/ebtables.user ]; then
+		echo "Exectung /etc/ebtables.user ..."
+		sh /etc/ebtables.user
+	fi
 
 	config_load "wireless"
 	local guest_macs=$( get_guest_macs )
@@ -1206,9 +1211,9 @@ restrict_guest_interface() {
   $NFFOUT ip saddr "$router_ip/$lan_netmask" $drop
   $NFOUT ip saddr "$router_ip/$lan_netmask" $drop
 	if [ "$allow_ipv6" = "1" ]; then
-    if [ "$is_router" = "1" ]; then
-      $NFIN ip6 nexthdr icmpv6 accept
-      $NFOUT ip6 nexthdr icmpv6 accept
+		if [ "$is_router" = "1" ]; then
+			$NFIN ip6 nexthdr icmpv6 accept
+			$NFOUT ip6 nexthdr icmpv6 accept
       router_ip6_global=$(echo $ip6net_global | sed -E 's#/[0-9]+$##')
       $NFIN ip6 daddr $router_ip6_global udp dport 53 accept
       $NFOUT ip6 saddr $router_ip6_global udp sport 53 accept
