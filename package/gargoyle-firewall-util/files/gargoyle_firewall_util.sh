@@ -725,6 +725,7 @@ ip_in_subnet() {
 EBFILTER="ebtables -t filter"
 
 isolate_guest_and_local_networks() {
+	echo "Flushing ebtables..."
 	$EBFILTER -F FORWARD
 	$EBFILTER -F INPUT
 	$EBFILTER -F OUTPUT
@@ -742,6 +743,11 @@ isolate_guest_and_local_networks() {
 		 is_router="1"
 	fi
 	local lan_netmask=$(uci -p /tmp/state get network.lan.netmask)
+
+	if [ -f /etc/ebtables.user ]; then
+		echo "Exectung /etc/ebtables.user ..."
+		sh /etc/ebtables.user
+	fi
 
 	config_load "wireless"
 	local guest_macs=$( get_guest_macs )
@@ -1219,8 +1225,8 @@ restrict_guest_interface() {
 	$EBFOUT -p IPV4 --ip-src "$router_ip/$lan_netmask" -j $dropTarget
 	if [ "$allow_ipv6" = "1" ]; then
 		if [ "$is_router" = "1" ]; then
- 			$EBIN   -p IPV6 --ip6-proto ipv6-icmp -j ACCEPT
- 			$EBOUT  -p IPV6 --ip6-proto ipv6-icmp -j ACCEPT
+			$EBIN   -p IPV6 --ip6-proto ipv6-icmp -j ACCEPT
+			$EBOUT  -p IPV6 --ip6-proto ipv6-icmp -j ACCEPT
 			router_ip6_global=$(echo $ip6net_global | sed -E 's#/[0-9]+$##')
 			$EBIN   -p IPV6 --ip6-dst $router_ip6_global --ip6-proto udp --ip6-dport 53 -j ACCEPT
 			$EBOUT  -p IPV6 --ip6-src $router_ip6_global --ip6-proto udp --ip6-sport 53 -j ACCEPT
