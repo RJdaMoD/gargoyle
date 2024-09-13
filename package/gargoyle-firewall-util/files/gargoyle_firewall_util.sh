@@ -1137,7 +1137,9 @@ createNFTChainsForPrefix() {
 	local lif="$2"
 	local chain_lif_prefix=$chain_prefix"_"$lif
 	for suf in IN FIN OUT FOUT; do
-		nft add chain bridge gfw $chain_lif_prefix"_"$suf
+	  local chain=$chain_lif_prefix"_"$suf
+		nft add chain bridge gfw $chain
+		nft flush chain bridge gfw $chain
 	done
 	nft insert rule bridge gfw input iifname $lif jump $chain_lif_prefix"_IN"
 	nft insert rule bridge gfw forward iifname $lif jump $chain_lif_prefix"_FIN"

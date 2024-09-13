@@ -28,13 +28,14 @@ hosts_to_query="$(echo $HOSTNAME; uci -q get ap_management_gargoyle.ap_managemen
 for host in $hosts_to_query; do
 	prefix=
 	if [ $host != $HOSTNAME ]; then
-		prefix="openssh-ssh -o BatchMode=yes -o ControlMaster=auto -o ControlPath=/tmp/ssh-control-%C \
+		prefix="openssh-ssh -4 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedKeyTypes=+ssh-rsa \
+			-o BatchMode=yes -o ControlMaster=auto -o ControlPath=/tmp/ssh-control-%C \
 		        -o ControlPersist=$keep_alive $host"
 	fi
 	fileName=/tmp/wifiStatus.${host#@}
 	cat <<EOF | { if flock -xn 3; then cat /dev/null >$fileName; $prefix sh -s >&3; else flock -x 3; fi } 3>>$fileName &
 iwinfo | awk -v HOSTNAME=\$HOSTNAME '
-  /^wlan/ { printf "wlanLines.push(\""\$1"@"HOSTNAME" " }
+  /^[^ ]/ { printf "wlanLines.push(\""\$1"@"HOSTNAME" " }
   /ESSID:/ { gsub(/"/,"",\$3); printf ""\$3" " }
   /Access Point:/ { printf ""\$3" " }
   /Mode: .* Channel: / { print ""\$4"\");" }'
@@ -71,7 +72,7 @@ done
 wait
 for host in $hosts_to_query; do
 	cat /tmp/wifiStatus.${host#@}
-donf
+done
 
 
 echo "conntrackLines = new Array();"
