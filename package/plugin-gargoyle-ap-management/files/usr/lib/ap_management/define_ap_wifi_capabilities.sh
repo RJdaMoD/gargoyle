@@ -13,13 +13,19 @@ firstRadio=true
 echo "["
 for radio in \$(uci show wireless | grep wifi-device | sed -E 's/^wireless\.(.*)=wifi-device\$/\1/'); do
 	radioPath=\$(uci get wireless.\$radio.path)
+	phyId=0
+	if [ \$(echo \$radioPath | grep -E "\+[0-9]+\$" | wc -l) = '1' ]; then
+	  phyId=\$(echo \$radioPath | sed -E 's/.*\+([0-9]+)\$/\1/')
+	  radioPath=\$(echo \$radioPath | sed -E 's/\+[0-9]+\$//')
+	fi
 	if [ \$(echo \$radioPath | grep "pci0000:00" | wc -l) = '1' ]; then
-		phy=\$(ls -1 /sys/bus/pci/devices/\$(echo \$radioPath | sed -E 's|^.*pci0000:00/(.*)\$|\1|')/ieee80211)
+		sysPath=/sys/bus/pci/devices/\$(echo \$radioPath | sed -E 's|^.*pci0000:00/(.*)\$|\1|')/ieee80211
 	elif [ \$(echo \$radioPath | grep "^platform/" | wc -l) = '1' ]; then
-		phy=\$(ls -1 /sys/bus/platform/devices/\$(echo \$radioPath | sed -E 's|^platform/(.*)\$|\1|')/ieee80211)
+		sysPath=/sys/bus/platform/devices/\$(echo \$radioPath | sed -E 's|^platform/(.*)\$|\1|')/ieee80211
 	else
 		continue
 	fi
+  phy=\$(ls -1 \$sysPath | tail -n +\$((\$phyId+1)) | head -n 1)
 	if \$firstRadio; then
 		firstRadio=false
 	else

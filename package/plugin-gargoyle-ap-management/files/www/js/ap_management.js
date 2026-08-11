@@ -11,9 +11,9 @@ var basicS = {}; //part of i18n
 
 var pkg = 'ap_management';
 var sec = 'config';
-var channelBandMap = {'11b': '2.4GHz (b)', '11g': '2.4GHz', '11a': '5GHz'};
-var channelBandIndex = {'11b': 1, '11g': 1, '11a': 2};
-var allowedChannelBandsForIndex = {1: ['11b', '11g'], 2: ['11a']};
+var channelBandMap = {'11b': '2.4GHz (b)', '11g': '2.4GHz', '11a': '5GHz', '2g': '2.4GHz', '5g': '5GHz'};
+var channelBandIndex = {'11b': 1, '11g': 1, '11a': 2, '2g': 1, '5g': 2};
+var allowedChannelBandsForIndex = {1: ['11b', '11g', '2g'], 2: ['11a', '5g']};
 var channelBandReverseMap = {};
 Object.keys(channelBandMap).forEach(k => { channelBandReverseMap[channelBandMap[k]] = k; });
 var htModeMap = {};
@@ -252,12 +252,15 @@ function buildRadioTable() {
 	var radioTable = flatten(
 		managedAPs.map(ap => ap.config.getAllSectionsOfType("wireless","wifi-device")
 			.map(radioName => {
-				var opts = ["hwmode", "channel", "hwmode", "htmode", "txpower", "country"]
+				var opts = ["hwmode", "channel", "band", "htmode", "txpower", "country"]
 					.map(opt => ap.config.get("wireless", radioName, opt));
-				opts[0] = channelBandMap[opts[0]];
+				if(!opts[2]) {
+				    opts[2] = opts[0];
+				}
+				opts[0] = channelBandMap[opts[2]];
 				var radio = ap.radios.find(x => x.radio === radioName);
 				var chan = radio.bands.find(x => x.band === channelBandIndex[opts[2]])
-					.channels.find(x => x.channel == opts[1]);
+					?.channels.find(x => x.channel == opts[1]);
 				opts[2] = chan ? chan.frequency/1e6 + "" : "?";
 				var devName = Object.keys(ap.wifiInfo)
 					.find(devName => ap.wifiInfo[devName]['PHY name'] === radio.phy);

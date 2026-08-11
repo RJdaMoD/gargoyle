@@ -228,6 +228,7 @@ insert_pf_loopback_rules()
 	if [ -z "$wan_if" ]  ; then return ; fi
 	network_get_ipaddr wan_ip wan
 	network_get_subnet lan_mask lan
+	local lan_if=$(uci get network.lan.device)
 
 	if [ -n "$wan_ip" ] && [ -n "$lan_mask" ] ; then
 		nft add chain inet fw4 nat_pf_loopback_A
@@ -236,7 +237,7 @@ insert_pf_loopback_rules()
 
 		nft insert rule inet fw4 dstnat_lan ip daddr $wan_ip jump nat_pf_loopback_A
 		nft insert rule inet fw4 forward_lan jump pf_loopback_B
-		nft insert rule inet fw4 srcnat_rule oifname br-lan jump nat_pf_loopback_C
+		nft insert rule inet fw4 srcnat_rule oifname "$lan_if" jump nat_pf_loopback_C
 
 		add_pf_loopback()
 		{
@@ -577,6 +578,7 @@ initialize_quota_qos()
 
 enforce_dhcp_assignments()
 {
+	local lan_if=$(uci get network.lan.device)
 	enforce_assignments=$(uci get firewall.@defaults[0].enforce_dhcp_assignments 2> /dev/null)
 	delete_chain_from_table "inet" "fw4" "lease_mismatch_check"
 	# Check and delete the sets
@@ -618,7 +620,7 @@ enforce_dhcp_assignments()
 				nft add element inet fw4 lease_mismatch_pairs \{ "$ip" . "$mac" : return \}
 			fi
 		done
-		nft insert rule inet fw4 forward_rule iifname br-lan meta nfproto ipv4 jump lease_mismatch_check
+		nft insert rule inet fw4 forward_rule iifname "$lan_if" meta nfproto ipv4 jump lease_mismatch_check
 		nft add rule inet fw4 lease_mismatch_check ip saddr != @lease_mismatch_ips ether saddr != @lease_mismatch_macs return
 		nft add rule inet fw4 lease_mismatch_check ip saddr . ether saddr vmap @lease_mismatch_pairs
 		nft add rule inet fw4 lease_mismatch_check reject
@@ -647,7 +649,8 @@ add_adsl_modem_routes()
 
 initialize_firewall()
 {
-	nft insert rule inet fw4 forward_lan iifname br-lan oifname br-lan accept
+	local lan_if=$(uci get network.lan.device)
+	nft insert rule inet fw4 forward_lan iifname "$lan_if" oifname "$lan_if" accept
 	insert_remote_accept_rules
 	insert_dmz_rule
 	create_l7marker_chain
@@ -655,6 +658,7 @@ initialize_firewall()
 	force_router_dns
 	add_adsl_modem_routes
 	isolate_guest_and_local_networks
+	nft insert rule inet fw4 handle_reject counter limit rate 20/second log prefix "inet-fw4" level warn flags all
 }
 
 guest_mac_from_uci() {
@@ -738,26 +742,28 @@ isolate_guest_and_local_networks() {
   echo "Flushing bridge table..."
   nft delete table bridge gfw 2>/dev/null
   #Establish bridge table
+  local gfw_priority="-500"
+  local gfw_log_rate_limit=20
   nft add table bridge gfw
-  nft add chain bridge gfw forward \{ type filter hook forward priority 0\; \}
-  nft add chain bridge gfw input \{ type filter hook input priority 0\; \}
-  nft add chain bridge gfw output \{ type filter hook output priority 0\; \}
-  nft add chain bridge gfw logAndDrop \{ type filter\; \}
-  nft add rule bridge gfw logAndDrop log prefix "gfw-drop" level warn flags all
+  nft add chain bridge gfw forward \{ type filter hook forward priority ${gfw_priority}\; \}
+  nft add chain bridge gfw input \{ type filter hook input priority ${gfw_priority}\; \}
+  nft add chain bridge gfw output \{ type filter hook output priority ${gfw_priority}\; \}
+  nft add chain bridge gfw logAndDrop
+  #nft flush chain bridge gfw logAndDrop
+  nft add rule bridge gfw logAndDrop limit rate ${gfw_log_rate_limit} / second log prefix "gfw-drop " level warn flags all
   nft add rule bridge gfw logAndDrop drop
 
-	local router_ip=$(uci -q -p /tmp/state get network.lan.gateway) # get ip of router if we are an access point
-	local ap_ip=$(uci -p /tmp/state get network.lan.ipaddr)
+	local router_ip=$(uci -q get network.lan.gateway) # get ip of router if we are an access point
+	local ap_ip=$(uci get network.lan.ipaddr)
 	local is_router="0"
 	if [ -z "$router_ip" ]; then
 		 router_ip="$ap_ip" # we are the router
 		 is_router="1"
 	fi
-	local lan_netmask=$(uci -p /tmp/state get network.lan.netmask)
-
-	if [ -f /etc/ebtables.user ]; then
-		echo "Exectung /etc/ebtables.user ..."
-		sh /etc/ebtables.user
+	local lan_netmask=$(uci get network.lan.netmask)
+	if [ -f /etc/gfw_rules.user ]; then
+		echo "Executing /etc/gfw_rules.user ..."
+		sh /etc/gfw_rules.user
 	fi
 
 	config_load "wireless"
@@ -765,7 +771,7 @@ isolate_guest_and_local_networks() {
 	local local_macs=$( get_local_macs )
 	local censored_macs=$( get_censored_macs )
 	if [ -n "$guest_macs" ] || [ -n "$local_macs" ] || [ -n "$censored_macs" ]; then
-		local lanifs=`brctl show br-lan 2>/dev/null | awk ' $NF !~ /interfaces/ { print $NF } '`
+		local lanifs=`brctl show br-lan 2>/dev/null | awk ' $NF !~ /interfaces/ { print $NF } '`  # TODO
 		local lif
 		for lif in $lanifs ; do
 			for gmac in $guest_macs ; do
@@ -865,8 +871,7 @@ isolate_guest_and_local_networks() {
 	fi
 
 	config_load "network"
-	config_foreach check_guest_or_local_or_censored_network "interface" $router_ip \
-		$lan_netmask $is_router
+	config_foreach check_guest_or_local_or_censored_network "interface" "$router_ip" "$lan_netmask" "$is_router"
 }
 
 clean_duplicate_nft_rules() {
@@ -900,17 +905,17 @@ decompose_ip_and_port() {
 		eval "$ip_type_var=IPV4"
 		eval "$ip_var=$(echo $ip_and_port | sed 's|/.*$||;s/:.*$//')"
 		eval "$mask_var=$(echo $ip_and_port | sed '/^[^/]*$/d;s|^.*/||;s/:.*$//')"
-		eval "$port_var=$(echo $ip_and_port | sed '/^[^:]*$/d;s/^.*://;s/-/:/')"
+		eval "$port_var=$(echo $ip_and_port | sed '/^[^:]*$/d;s/^.*://')"
 	elif [ $(echo $ip_and_port | grep -E "^$ip6pattern(/[0-9]{1,3}|/$ip6pattern)?(\.$portPattern)?$" | wc -l) -eq 1 ]; then
 		eval "$ip_type_var=IPV6"
 		eval "$ip_var=$(echo $ip_and_port | sed 's|/.*$||;s/\..*$//')"
 		eval "$mask_var=$(echo $ip_and_port | sed '/^[^/]*$/d;s|^.*/||;s/\..*$//')"
-		eval "$port_var=$(echo $ip_and_port | sed '/^[^.]*$/d;s/^.*\.//;s/-/:/')"
+		eval "$port_var=$(echo $ip_and_port | sed '/^[^.]*$/d;s/^.*\.//')"
 	elif [ $(echo $ip_and_port | grep -E "^\[$ip6pattern(/[0-9]{1,3}|/$ip6pattern)?\](:$portPattern)?$" | wc -l) -eq 1 ]; then
 		eval "$ip_type_var=IPV6"
 		eval "$ip_var=$(echo $ip_and_port | sed -E 's|^\[([^/]*)(/.*)?\].*$|\1|')"
 		eval "$mask_var=$(echo $ip_and_port | sed '/^[^/]*$/d;s|^\[.*/||;s/\].*$//')"
-		eval "$port_var=$(echo $ip_and_port | sed '/^\[.*\]$/d;s/^\[.*\]://;s/-/:/')"
+		eval "$port_var=$(echo $ip_and_port | sed '/^\[.*\]$/d;s/^\[.*\]://')"
 	else
 		return 1
 	fi
@@ -951,6 +956,30 @@ decompose_host_address_and_call_proc() {
 	fi
 }
 
+BRIDGE_HAS_VLAN=$(uci get network.lan.device | grep -cE "\.\d+$")
+DEBUG_GFW=1
+
+nft_gfw_add_rule() {
+	local rule="$@"
+	if [ "$DEBUG_GFW" = 1 ] && [ "$(echo $rule | grep -cE " counter( |$)")" = 0 ]; then
+		rule=$(echo $rule | sed -E 's/ (accept|continue|drop|queue|return|(goto|jump) .*)( |$)/ counter \1\2/')
+	fi
+	if [ "$BRIDGE_HAS_VLAN" = "1" ] && \
+			{ [ "$1" = "input" ] || [ "$1" = "output" ] || [ "$(echo "$1" | grep -cE "_(IN|OUT)$")" = "1" ]; } && \
+			[ "$(echo $rule | grep -cE 'ether +type +8021q ')" = 0 ] && [ "$(echo $rule | grep -cE '(^| )arp ')" = 1  ]; then
+		local vlan_arp_rule=$(echo $rule | \
+			sed -E 's/arp +(htype|ptype|hlen|plen|operation|saddr +(ether|ip)|daddr +(ether|ip)) +([^ ]+)/ether type 8021q arp \1 \4/g')
+		nft add rule bridge gfw $vlan_arp_rule
+	fi
+	nft add rule bridge gfw $rule
+	#if { [ "$1" = "input" ] || [ "$1" = "output" ] || [ "$(echo "$1" | grep -cE "_(IN|OUT)$")" = "1" ]; } && \
+	#		{ [ "$2" = "arp" ] || { { [ "$2" = "iifname" ] || [ "$2" = "oifname" ]; } && [ "$4" = "arp" ]; }; }; then
+	#	nft add rule arp gfw "$@"
+	#else
+	#	nft add rule bridge gfw "$@"
+	#fi
+}
+
 constructChainAppendCommandsFromPrefix() {
 	local chain_prefix="$1"
 	local lif=$2
@@ -959,15 +988,15 @@ constructChainAppendCommandsFromPrefix() {
 	local chain_OUT_var=$5
 	local chain_FOUT_var=$6
 	if [ -n "$chain_prefix" ]; then
-		eval "$chain_IN_var=\"nft add rule bridge gfw $chain_prefix"_"$lif"_IN"\""
-		eval "$chain_FIN_var=\"nft add rule bridge gfw $chain_prefix"_"$lif"_FIN"\""
-		eval "$chain_OUT_var=\"nft add rule bridge gfw $chain_prefix"_"$lif"_OUT"\""
-		eval "$chain_FOUT_var=\"nft add rule bridge gfw $chain_prefix"_"$lif"_FOUT"\""
+		eval "$chain_IN_var=\"nft_gfw_add_rule $chain_prefix"_"$lif"_IN"\""
+		eval "$chain_FIN_var=\"nft_gfw_add_rule $chain_prefix"_"$lif"_FIN"\""
+		eval "$chain_OUT_var=\"nft_gfw_add_rule $chain_prefix"_"$lif"_OUT"\""
+		eval "$chain_FOUT_var=\"nft_gfw_add_rule $chain_prefix"_"$lif"_FOUT"\""
 	else
-		eval "$chain_IN_var=\"nft add rule bridge gfw input iifname $lif\""
-		eval "$chain_FIN_var=\"nft add rule bridge gfw forward iifname $lif\""
-		eval "$chain_OUT_var=\"nft add rule bridge gfw output oifname $lif\""
-		eval "$chain_FOUT_var=\"nft add rule bridge gfw forward oifname $lif\""
+		eval "$chain_IN_var=\"nft_gfw_add_rule input iifname $lif\""
+		eval "$chain_FIN_var=\"nft_gfw_add_rule forward iifname $lif\""
+		eval "$chain_OUT_var=\"nft_gfw_add_rule output oifname $lif\""
+		eval "$chain_FOUT_var=\"nft_gfw_add_rule forward oifname $lif\""
 	fi
 }
 
@@ -984,12 +1013,9 @@ allow_ip_for_interface() {
             $chain_prefix $lif $router_ip $lan_netmask
 		return $?
 	fi
-	if [ -n "$allowed_mask" ]; then
-		allowed_ip=$allowed_ip/$allowed_mask
-	fi
 	local needs_routing="0"
 	local NFIN NFFIN NFOUT NFFOUT
-  constructChainAppendCommandsFromPrefix $chain_prefix $lif NFIN NFFIN NFOUT NFFOUT
+  constructChainAppendCommandsFromPrefix "$chain_prefix" $lif NFIN NFFIN NFOUT NFFOUT
 	local ipp
 	if [ "$allowed_ip_type" = "IPV4" ]; then
 		if ip_in_subnet "$allowed_ip" "$router_ip" "$lan_netmask"; then
@@ -1004,21 +1030,24 @@ allow_ip_for_interface() {
 	elif [ "$allowed_ip_type" = "IPV6" ]; then
 		ipp="ip6"
 	fi
+	if [ -n "$allowed_mask" ]; then
+		allowed_ip="& $allowed_mask == $allowed_ip & $allowed_mask"
+	fi
   if [ -n "$ipp" ]; then
     if [ -n "$allowed_port" ]; then
-      $NFIN $iip daddr "$allowed_ip" tcp dport "$allowed_port" accept
-      $NFOUT $iip saddr "$allowed_ip" tcp sport "$allowed_port" accept
-      $NFFIN $iip daddr "$allowed_ip" tcp dport "$allowed_port" accept
-      $NFFOUT $iip saddr "$allowed_ip" tcp sport "$allowed_port" accept
-      $NFIN $iip daddr "$allowed_ip" udp dport "$allowed_port" accept
-      $NFOUT $iip saddr "$allowed_ip" udp sport "$allowed_port" accept
-      $NFFIN $iip daddr "$allowed_ip" udp dport "$allowed_port" accept
-      $NFFOUT $iip saddr "$allowed_ip" udp sport "$allowed_port" accept
+      $NFIN $ipp daddr "$allowed_ip" tcp dport "$allowed_port" accept
+      $NFOUT $ipp saddr "$allowed_ip" tcp sport "$allowed_port" accept
+      $NFFIN $ipp daddr "$allowed_ip" tcp dport "$allowed_port" accept
+      $NFFOUT $ipp saddr "$allowed_ip" tcp sport "$allowed_port" accept
+      $NFIN $ipp daddr "$allowed_ip" udp dport "$allowed_port" accept
+      $NFOUT $ipp saddr "$allowed_ip" udp sport "$allowed_port" accept
+      $NFFIN $ipp daddr "$allowed_ip" udp dport "$allowed_port" accept
+      $NFFOUT $ipp saddr "$allowed_ip" udp sport "$allowed_port" accept
     else
-      $NFIN $iip daddr "$allowed_ip" accept
-      $NFOUT $iip saddr "$allowed_ip" accept
-      $NFFIN $iip daddr "$allowed_ip" accept
-      $NFFOUT $iip saddr "$allowed_ip" accept
+      $NFIN $ipp daddr "$allowed_ip" accept
+      $NFOUT $ipp saddr "$allowed_ip" accept
+      $NFFIN $ipp daddr "$allowed_ip" accept
+      $NFFOUT $ipp saddr "$allowed_ip" accept
     fi
   fi
 	[ "$needs_routing" = "1" ] && return 1
@@ -1031,10 +1060,10 @@ forbid_ip_for_interface() {
 	local router_ip="$4"
 	local lan_netmask="$5"
 	local dropTarget="$6"
-	if [ "$dropTarget" = "drop" ]; then
-	  drop=drop
+	if [ -z "$dropTarget" ] || [ "$dropTarget" = "drop" ]; then
+	  drop="counter drop"
 	else
-	  drop="jump $dropTarget"
+	  drop="counter goto $dropTarget"
 	fi
 	local forbidden_ip_type forbidden_ip forbidden_mask forbidden_port
 	if ! decompose_ip_and_port "$forbidden_ip_and_port" forbidden_ip_type \
@@ -1044,38 +1073,38 @@ forbid_ip_for_interface() {
 		return $?
 	fi
 #	echo "$lif: forbid ip $forbidden_ip_and_port: $forbidden_ip_type , $forbidden_ip , $forbidden_mask , $forbidden_port"
-	if [ -n "$forbidden_mask" ]; then
-		forbidden_ip=$forbidden_ip/$forbidden_mask
-	fi
 	local NFIN NFFIN NFOUT NFFOUT
-  constructChainAppendCommandsFromPrefix $chain_prefix $lif NFIN NFFIN NFOUT NFFOUT
+  constructChainAppendCommandsFromPrefix "$chain_prefix" $lif NFIN NFFIN NFOUT NFFOUT
 	local ipp
 	if [ "$forbidden_ip_type" = "IPV4" ]; then
 		if ip_in_subnet "$forbidden_ip" "$router_ip" "$lan_netmask"; then
-			$NFIN arp daddr ip "$forbidden_ip" $drop
-      $NFOUT arp saddr ip "$forbidden_ip" $drop
-      $NFFIN arp daddr ip "$forbidden_ip" $drop
-      $NFFOUT arp saddr ip "$forbidden_ip" $drop
+			$NFIN arp daddr ip $forbidden_ip $drop
+      $NFOUT arp saddr ip $forbidden_ip $drop
+      $NFFIN arp daddr ip $forbidden_ip $drop
+      $NFFOUT arp saddr ip $forbidden_ip $drop
 		fi
 		ipp="ip"
 	elif [ "$forbidden_ip_type" = "IPV6" ]; then
 		ipp="ip6"
 	fi
-	if [ -n $ipp ]; then
+	if [ -n "$forbidden_mask" ]; then
+		forbidden_ip="& $forbidden_mask == $forbidden_ip & $forbidden_mask"
+	fi
+	if [ -n "$ipp" ]; then
 		if [ -n "$forbidden_port" ]; then
-      $NFIN $iip daddr "$forbidden_ip" tcp dport "$forbidden_port" $drop
-      $NFOUT $iip saddr "$forbidden_ip" tcp sport "$forbidden_port" $drop
-      $NFFIN $iip daddr "$forbidden_ip" tcp dport "$forbidden_port" $drop
-      $NFFOUT $iip saddr "$forbidden_ip" tcp sport "$forbidden_port" $drop
-      $NFIN $iip daddr "$forbidden_ip" udp dport "$forbidden_port" $drop
-      $NFOUT $iip saddr "$forbidden_ip" udp sport "$forbidden_port" $drop
-      $NFFIN $iip daddr "$forbidden_ip" udp dport "$forbidden_port" $drop
-      $NFFOUT $iip saddr "$forbidden_ip" udp sport "$forbidden_port" $drop
+      $NFIN $ipp daddr $forbidden_ip tcp dport "$forbidden_port" $drop
+      $NFOUT $ipp saddr $forbidden_ip tcp sport "$forbidden_port" $drop
+      $NFFIN $ipp daddr $forbidden_ip tcp dport "$forbidden_port" $drop
+      $NFFOUT $ipp saddr $forbidden_ip tcp sport "$forbidden_port" $drop
+      $NFIN $ipp daddr $forbidden_ip udp dport "$forbidden_port" $drop
+      $NFOUT $ipp saddr $forbidden_ip udp sport "$forbidden_port" $drop
+      $NFFIN $ipp daddr $forbidden_ip udp dport "$forbidden_port" $drop
+      $NFFOUT $ipp saddr $forbidden_ip udp sport "$forbidden_port" $drop
 		else
-      $NFIN $iip daddr "$forbidden_ip" $drop
-      $NFOUT $iip saddr "$forbidden_ip" $drop
-      $NFFIN $iip daddr "$forbidden_ip" $drop
-      $NFFOUT $iip saddr "$forbidden_ip" $drop
+      $NFIN $ipp daddr $forbidden_ip $drop
+      $NFOUT $ipp saddr $forbidden_ip $drop
+      $NFFIN $ipp daddr $forbidden_ip $drop
+      $NFFOUT $ipp saddr $forbidden_ip $drop
 		fi
 	fi
 }
@@ -1090,68 +1119,74 @@ allow_server_for_interface() {
 	if ! decompose_ip_and_port "$allowed_server" allowed_server_ip_type \
 			allowed_server_ip allowed_server_mask allowed_server_port; then
 		decompose_host_address_and_call_proc "$allowed_server" allow_server_for_interface \
-			$chain_prefix $lif $router_ip $lan_netmask
+			"$chain_prefix" $lif $router_ip $lan_netmask
 		return $?
 	fi
 	if [ -n "$allowed_server_mask" ]; then
-		allowed_server_ip=$allowed_server_ip/$allowed_server_mask
+		allowed_server_ip="& $allowed_server_mask == $allowed_server_ip & $allowed_server_mask"
 	fi
 	local NFIN NFFIN NFOUT NFFOUT
-  constructChainAppendCommandsFromPrefix $chain_prefix $lif NFIN NFFIN NFOUT NFFOUT
+  constructChainAppendCommandsFromPrefix "$chain_prefix" $lif NFIN NFFIN NFOUT NFFOUT
 	local ipp
 	if [ "$allowed_server_ip_type" = "IPV4" ]; then
-	  $NFIN arp saddr ip "$allowed_server_ip" accept
-	  $NFOUT arp daddr ip "$allowed_server_ip" accept
-    $NFFIN arp saddr ip "$allowed_server_ip" accept
-    $NFFOUT arp daddr ip "$allowed_server_ip" accept
-	  $NFIN ip saddr "$allowed_server_ip" icmp type echo-reply accept
-	  $NFOUT ip daddr "$allowed_server_ip" icmp type echo-request accept
-	  $NFFIN ip saddr "$allowed_server_ip" icmp type echo-reply accept
-	  $NFFOUT ip daddr "$allowed_server_ip" icmp type echo-request accept
+	  $NFIN arp saddr ip $allowed_server_ip accept
+	  $NFOUT arp daddr ip $allowed_server_ip accept
+    $NFFIN arp saddr ip $allowed_server_ip accept
+    $NFFOUT arp daddr ip $allowed_server_ip accept
+	  $NFIN ip saddr $allowed_server_ip icmp type echo-reply accept
+	  $NFOUT ip daddr $allowed_server_ip icmp type echo-request accept
+	  $NFFIN ip saddr $allowed_server_ip icmp type echo-reply accept
+	  $NFFOUT ip daddr $allowed_server_ip icmp type echo-request accept
 		ipp="ip"
 	elif [ "$allowed_server_ip_type" = "IPV6" ]; then
-    $NFFOUT ip6 daddr "ff02::/ffff::" icmp accept
-    $NFFIN ip6 saddr "$allowed_server_ip" icmp type echo-reply accept
-    $NFFOUT ip6 daddr "$allowed_server_ip" icmp type echo-request accept
+    $NFFOUT ip6 daddr \& ffff:: == ff02:: ip6 nexthdr icmpv6 accept
+    $NFFIN ip6 saddr $allowed_server_ip icmpv6 type echo-reply accept
+    $NFFOUT ip6 daddr $allowed_server_ip icmpv6 type echo-request accept
 		ipp="ip6"
 	fi
-	if [ -n "$allowed_server_port" ]; then
-	  $NFIN $ipp saddr "$allowed_server_ip" tcp sport "$allowed_server_port" accept
-	  $NFOUT $ipp daddr "$allowed_server_ip" tcp dport "$allowed_server_port" accept
-	  $NFFIN $ipp saddr "$allowed_server_ip" tcp sport "$allowed_server_port" accept
-	  $NFFOUT $ipp daddr "$allowed_server_ip" tcp dport "$allowed_server_port" accept
-	  $NFIN $ipp saddr "$allowed_server_ip" udp sport "$allowed_server_port" accept
-	  $NFOUT $ipp daddr "$allowed_server_ip" udp dport "$allowed_server_port" accept
-	  $NFFIN $ipp saddr "$allowed_server_ip" udp sport "$allowed_server_port" accept
-	  $NFFOUT $ipp daddr "$allowed_server_ip" udp dport "$allowed_server_port" accept
-	else
-	  $NFIN $ipp saddr "$allowed_server_ip" accept
-	  $NFOUT $ipp daddr "$allowed_server_ip" accept
-	  $NFFIN $ipp saddr "$allowed_server_ip" accept
-	  $NFFOUT $ipp daddr "$allowed_server_ip" accept
-	fi
+	if [ -n "$ipp" ]; then
+    if [ -n "$allowed_server_port" ]; then
+      $NFIN $ipp saddr $allowed_server_ip tcp sport "$allowed_server_port" accept
+      $NFOUT $ipp daddr $allowed_server_ip tcp dport "$allowed_server_port" accept
+      $NFFIN $ipp saddr $allowed_server_ip tcp sport "$allowed_server_port" accept
+      $NFFOUT $ipp daddr $allowed_server_ip tcp dport "$allowed_server_port" accept
+      $NFIN $ipp saddr $allowed_server_ip udp sport "$allowed_server_port" accept
+      $NFOUT $ipp daddr $allowed_server_ip udp dport "$allowed_server_port" accept
+      $NFFIN $ipp saddr $allowed_server_ip udp sport "$allowed_server_port" accept
+      $NFFOUT $ipp daddr $allowed_server_ip udp dport "$allowed_server_port" accept
+    else
+      $NFIN $ipp saddr $allowed_server_ip accept
+      $NFOUT $ipp daddr $allowed_server_ip accept
+      $NFFIN $ipp saddr $allowed_server_ip accept
+      $NFFOUT $ipp daddr $allowed_server_ip accept
+    fi
+  fi
 }
 
 createNFTChainsForPrefix() {
 	local chain_prefix="$1"
-	local lif="$2"
-	local chain_lif_prefix=$chain_prefix"_"$lif
+	local liif="$2"
+	local loif="$3"
+	[ -z "$loif" ] && loif="$liif"
+	local chain_lif_prefix=$chain_prefix"_"$liif
 	for suf in IN FIN OUT FOUT; do
 	  local chain=$chain_lif_prefix"_"$suf
 		nft add chain bridge gfw $chain
 		nft flush chain bridge gfw $chain
 	done
-	nft insert rule bridge gfw input iifname $lif jump $chain_lif_prefix"_IN"
-	nft insert rule bridge gfw forward iifname $lif jump $chain_lif_prefix"_FIN"
-	nft add rule bridge gfw output oifname $lif jump $chain_lif_prefix"_OUT"
-	nft add rule bridge gfw forward oifname $lif jump $chain_lif_prefix"_FOUT"
+	local jump_cmd=jump
+	[ "$DEBUG_GFW" = 1 ] && jump_cmd="counter $jump_cmd"
+	nft insert rule bridge gfw input iifname $liif counter $jump_cmd $chain_lif_prefix"_IN"
+	nft insert rule bridge gfw forward iifname $liif counter $jump_cmd $chain_lif_prefix"_FIN"
+	nft add rule bridge gfw output oifname $loif counter $jump_cmd $chain_lif_prefix"_OUT"
+	nft add rule bridge gfw forward oifname $loif counter $jump_cmd $chain_lif_prefix"_FOUT"
 }
 
 cleanNFTChainsForPrefix() {
 	local chain_prefix="$1"
 	local lif="$2"
 	for suf in IN FIN OUT FOUT; do
-		clean_duplicate_nft_rules filter $chain_prefix"_"$lif"_"$suf
+		clean_duplicate_nft_rules "bridge gfw" $chain_prefix"_"$lif"_"$suf
 	done
 }
 
@@ -1165,18 +1200,21 @@ restrict_guest_interface() {
 	local forbidden_ips="$7"
 	local allowed_servers="$8"
 	local dropTarget="$9"
-	if [ -z "$dropTarget" ]; then
-	  drop=drop
+	if [ -z "$dropTarget" ] || [ "$dropTarget" = "drop" ]; then
+	  drop="counter drop"
 	else
-	  drop="jump $dropTarget"
+	  drop="counter goto $dropTarget"
 	fi
-	local bridgeDev=br-lan
+	local bridgeDev=$(uci get network.lan.device)
   local ip6net_global=$(ip addr show $bridgeDev | grep "inet6 [^f]" | sed -E 's|^.*inet6 ([^ ]*) ([^ ]*) .*$|\1|')
+	if [ "$allow_ipv6" = "1" ] && [ -z "$ip6net_global" ]; then
+		echo "Router has no global ipv6 address yet, rerun might be required for ip6 connectivity"
+	fi
   local ip6net_local=$(uci get network.globals.ula_prefix)
   local router_ip6_global router_ip6_local
 	createNFTChainsForPrefix guest $lif
 	local NFIN NFFIN NFOUT NFFOUT
-  constructChainAppendCommandsFromPrefix $chain_prefix $lif NFIN NFFIN NFOUT NFFOUT
+  constructChainAppendCommandsFromPrefix guest $lif NFIN NFFIN NFOUT NFFOUT
 	if [ -n "$allowed_ips" ]; then
 		if [ -n "$forbidden_ips" ]; then
 			for forbidden_ip in $forbidden_ips ; do
@@ -1195,38 +1233,44 @@ restrict_guest_interface() {
 	if [ "$is_router" = "1" ]; then
 	  $NFIN arp daddr ip "$router_ip" accept
 	  $NFIN ip daddr "$router_ip" udp dport 53 accept
-	  $NFIN ip udp dport 67 accept
+	  $NFIN ip version 4 udp dport 67 accept
+	  $NFOUT arp saddr ip "$router_ip" accept
+	  $NFOUT ip saddr "$router_ip" udp sport {53, 67} accept
 	else
 	  $NFFIN arp daddr ip "$router_ip" accept
-	  $NFFOUT arp saddr ip "$router_ip" accept
+	  $NFFIN ip version 4 udp dport 67 accept
 	  $NFFIN ip daddr "$router_ip" udp dport 53 accept
-	  $NFFOUT ip saddr "$router_ip" udp sport 53 accept
-	  $NFFIN ip udp dport 67 accept
-	  $NFFOUT ip udp sport 67 accept
+	  $NFFOUT arp saddr ip "$router_ip" accept
+	  $NFFOUT ip saddr "$router_ip" udp sport {53, 67} accept
 	fi
-  $NFIN arp daddr ip "$router_ip/$lan_netmask" $drop
-  $NFFIN arp daddr ip "$router_ip/$lan_netmask" $drop
-  $NFFOUT arp saddr ip "$router_ip/$lan_netmask" $drop
-  $NFOUT arp saddr ip "$router_ip/$lan_netmask" $drop
-  $NFIN ip daddr "$router_ip/$lan_netmask" $drop
-  $NFFIN ip daddr "$router_ip/$lan_netmask" $drop
-  $NFFOUT ip saddr "$router_ip/$lan_netmask" $drop
-  $NFOUT ip saddr "$router_ip/$lan_netmask" $drop
+  $NFIN arp daddr ip \& "$lan_netmask" == "$router_ip" \& "$lan_netmask"  $drop
+  $NFFIN arp daddr ip \& "$lan_netmask" == $router_ip \& "$lan_netmask"  $drop
+  $NFFOUT arp saddr ip \& "$lan_netmask" == $router_ip \& "$lan_netmask"  $drop
+  $NFOUT arp saddr ip \& "$lan_netmask" == $router_ip \& "$lan_netmask"  $drop
+  $NFIN ip daddr \& "$lan_netmask" == $router_ip \& "$lan_netmask"  $drop
+  $NFFIN ip daddr \& "$lan_netmask" == $router_ip \& "$lan_netmask"  $drop
+  $NFFOUT ip saddr \& "$lan_netmask" == $router_ip \& "$lan_netmask"  $drop
+  $NFOUT ip saddr \& "$lan_netmask" == "$router_ip" \& "$lan_netmask"  $drop
 	if [ "$allow_ipv6" = "1" ]; then
 		if [ "$is_router" = "1" ]; then
 			$NFIN ip6 nexthdr icmpv6 accept
 			$NFOUT ip6 nexthdr icmpv6 accept
-      router_ip6_global=$(echo $ip6net_global | sed -E 's#/[0-9]+$##')
-      $NFIN ip6 daddr $router_ip6_global udp dport 53 accept
-      $NFOUT ip6 saddr $router_ip6_global udp sport 53 accept
-      router_ip6_local=$(ip addr show $bridgeDev | grep $(echo $ip6net_local | sed -E 's#/[0-9]+$##') | sed -E 's|^.*inet6 ([^ ]*) ([^ ]*) .*$|\1|' | sed -E 's#/[0-9]+$##')
+			if [ -n "$ip6net_global" ]; then
+				router_ip6_global=$(echo $ip6net_global | sed -E 's#/[0-9]+$##')
+				$NFIN ip6 daddr $router_ip6_global udp dport 53 accept
+				$NFOUT ip6 saddr $router_ip6_global udp sport 53 accept
+			fi
+      router_ip6_local=$(ip addr show $bridgeDev | grep $(echo $ip6net_local | sed -E 's#/[0-9]+$##;s/::/:/') | \
+                          sed -E 's|^.*inet6 ([^ ]*) ([^ ]*) .*$|\1|' | sed -E 's#/[0-9]+$##')
       $NFIN ip6 daddr $router_ip6_local udp dport 53 accept
       $NFOUT ip6 saddr $router_ip6_local udp sport 53 accept
     fi
     $NFFIN oifname $bridgeDev ip6 daddr $ip6net_local $drop
     $NFFOUT iifname $bridgeDev ip6 saddr $ip6net_local $drop
-    $NFFIN oifname $bridgeDev ip6 daddr != $ip6net_global accept
-    $NFFOUT iifname $bridgeDev ip6 saddr != $ip6net_global accept
+    if [ -n "$ip6net_global" ]; then
+			$NFFIN oifname $bridgeDev ip6 daddr != $ip6net_global accept
+			$NFFOUT iifname $bridgeDev ip6 saddr != $ip6net_global accept
+		fi
   fi
 	$NFIN meta protocol ip6 $drop
   $NFOUT meta protocol ip6 $drop
@@ -1244,19 +1288,19 @@ restrict_local_interface() {
 	local forbidden_ips="$6"
 	local allowed_servers="$7"
 	local dropTarget="$8"
-if [ -z "$dropTarget" ]; then
-	  drop=drop
+  if [ -z "$dropTarget" ] || [ "$dropTarget" = "drop" ]; then
+	  drop="counter drop"
 	else
-	  drop="jump $dropTarget"
+	  drop="counter goto $dropTarget"
 	fi
 	createNFTChainsForPrefix local $lif
 	local NFIN NFFIN NFOUT NFFOUT
-  constructChainAppendCommandsFromPrefix $chain_prefix $lif NFIN NFFIN NFOUT NFFOUT
+  constructChainAppendCommandsFromPrefix local $lif NFIN NFFIN NFOUT NFFOUT
 	if [ -n "$allowed_ips" ]; then
 		local needs_routing="0"
 		if [ -n "$forbidden_ips" ]; then
 			for forbidden_ip in $forbidden_ips ; do
-				forbid_ip_for_interface $forbidden_ip local $lif $router_ip $lan_netmask $dropTarget
+				forbid_ip_for_interface $forbidden_ip local $lif $router_ip $lan_netmask "$dropTarget"
 			done
 		fi
 		for allowed_ip in $allowed_ips ; do
@@ -1274,11 +1318,11 @@ if [ -z "$dropTarget" ]; then
 			fi
 		fi
 	else
-	  $NFIN arp daddr ip "$router_ip/$lan_netmask" accept
-	  $NFFIN arp daddr ip "$router_ip/$lan_netmask" accept
-	  $NFOUT arp saddr ip "$router_ip/$lan_netmask" accept
-		$NFFIN ip daddr "$router_ip/$lan_netmask" accept
-		$NFOUT ip saddr "$router_ip/$lan_netmask" accept
+	  $NFIN arp daddr ip \& $lan_netmask == $router_ip \& $lan_netmask accept
+	  $NFFIN arp daddr ip \& $lan_netmask == $router_ip \& $lan_netmask accept
+	  $NFOUT arp saddr ip \& $lan_netmask == $router_ip \& $lan_netmask accept
+		$NFFIN ip daddr \& $lan_netmask == $router_ip \& $lan_netmask accept
+		$NFOUT ip saddr \& $lan_netmask == $router_ip \& $lan_netmask accept
 	fi
 	if [ -n "$allowed_servers" ]; then
 		for allowed_server in $allowed_servers ; do
@@ -1308,8 +1352,7 @@ restrict_censored_interface() {
 	local allowed_ips="$5"
 	local forbidden_ips="$6"
 	local dropTarget="$7"
-	[ -z $dropTarget ] && dropTarget=DROP
-	createEbtablesChainsForPrefix censored $lif ACCEPT
+	createNFTChainsForPrefix censored $lif
 	if [ -n "$forbidden_ips" ]; then
 		if [ -n "$allowed_ips" ]; then
 			for allowed_ip in $allowed_ips ; do
@@ -1317,10 +1360,40 @@ restrict_censored_interface() {
 			done
 		fi
 		for forbidden_ip in $forbidden_ips ; do
-			forbid_ip_for_interface $forbidden_ip censored $lif $router_ip $lan_netmask $dropTarget
+			forbid_ip_for_interface $forbidden_ip censored $lif $router_ip $lan_netmask "$dropTarget"
 		done
 	fi
-	cleanEbtablesChainsForPrefix censored $lif
+	cleanNFTChainsForPrefix censored $lif
+}
+
+setup_veth_link() {
+	source_if="$1"
+	target_if="$2"
+	source_br=$(echo "$source_if" | sed -E 's/^([^.]+)\.[0-9]+$/\1/')
+	source_vlan=$(echo "$source_if" | sed -E 's/^[^.]+\.([0-9]+)$/\1/')
+	target_br=$(echo "$target_if" | sed -E 's/^([^.]+)\.[0-9]+$/\1/')
+	target_vlan=$(echo "$target_if" | sed -E 's/^[^.]+\.([0-9]+)$/\1/')
+	source_veth="vout_${source_if}"
+	target_veth="vin_${source_if}"
+	[ "$(ip link | grep -c "$source_veth")" != "0" ] && ip link delete "$source_veth"
+	[ "$(ip link | grep -c "$target_veth")" != "0" ] && ip link delete "$target_veth"
+	ip link add "$source_veth" type veth
+	actual_target_veth=$(ip link show "$source_veth" | grep "$source_veth" | \
+												sed -E 's/^[0-9]+: '"$source_veth"'@([^:]+): .*$/\1/')
+	ip link set "$actual_target_veth" name "$target_veth"
+	ip link set "$source_veth" master "$source_br"
+	ip link set "$target_veth" master "$target_br"
+	bridge vlan add vid "$source_vlan" pvid untagged dev "$source_veth"
+	bridge vlan add vid "$target_vlan" pvid untagged dev "$target_veth"
+	if [ "$source_vlan" != "1" ]; then
+		bridge vlan del vid 1 untagged dev "$source_veth"
+	fi
+	if [ "$target_vlan" != "1" ]; then
+		bridge vlan del vid 1 untagged dev "$target_veth"
+	fi
+	ip link set "${source_veth}" up
+	ip link set "${target_veth}" up
+	echo "${source_veth}@${target_veth}"
 }
 
 check_guest_or_local_or_censored_network() { # network, not wifi!
@@ -1337,7 +1410,8 @@ check_guest_or_local_or_censored_network() { # network, not wifi!
 	local forbidden_ips
 	local allowed_servers
 	local logDrops
-	local dropTarget=DROP
+	local dropTarget
+	local target_dev
 	config_get ifname "$iface" ifname
 	config_get is_guest_network "$iface" is_guest_network
 	config_get is_local_network "$iface" is_local_network
@@ -1347,6 +1421,16 @@ check_guest_or_local_or_censored_network() { # network, not wifi!
 	config_get allowed_servers "$iface" allowed_servers
 	config_get logDrops "$iface" logDrops
 	[ "$logDrops" = 1 ] && dropTarget=logAndDrop
+	config_get target_dev "$iface" target_dev
+	[ -z "$target_dev" ] && target_dev=$(uci get network.lan.device)
+	if [ "$target_dev" != "$ifname" ] && \
+			[ "$(echo $target_dev | grep -cE "^.*\.[0-9]+$")" != "0" ] && \
+			[ "$(echo $ifname | grep -cE "^.*\.[0-9]+$")" != "0" ] ; then
+		veth_link=$(setup_veth_link "$ifname" "$target_dev")
+		echo "Bridged $ifname to $target_dev using veth link $veth_link"
+		echo "Using ${veth_link##*@} instead of ${ifname} for nft filtering"
+		ifname="${veth_link##*@}"
+	fi
 	if [ "$is_guest_network" = "1" ]; then
 		local allow_ipv6
 		config_get allow_ipv6 "$iface" allow_ipv6
@@ -1362,7 +1446,7 @@ check_guest_or_local_or_censored_network() { # network, not wifi!
 			echo "$ifname is allowed to host these servers: $allowed_servers"
 		fi
 		restrict_guest_interface "$ifname" $router_ip $lan_netmask $is_router \
-			"$allow_ipv6" "$allowed_ips" "$forbidden_ips" "$allowed_servers" $dropTarget
+			"$allow_ipv6" "$allowed_ips" "$forbidden_ips" "$allowed_servers" "$dropTarget"
 	fi
 	if [ "$is_local_network" = "1" ]; then
 		echo "$ifname is local network named $iface$(
@@ -1378,7 +1462,7 @@ check_guest_or_local_or_censored_network() { # network, not wifi!
 			echo "$ifname is allowed to host these servers: $allowed_servers"
 		fi
 		restrict_local_interface "$ifname" $router_ip $lan_netmask $is_router \
-			"$allowed_ips" "$forbidden_ips" "$allowed_servers" $dropTarget
+			"$allowed_ips" "$forbidden_ips" "$allowed_servers" "$dropTarget"
 	fi
 	if [ "$is_censored_network" = "1" ]; then
 		echo "$ifname is censored network named $iface$(
@@ -1391,7 +1475,7 @@ check_guest_or_local_or_censored_network() { # network, not wifi!
 				fi
 			fi)"
 		restrict_censored_interface "$ifname" $router_ip $lan_netmask $is_router \
-			"$allowed_ips" "$forbidden_ips" $dropTarget
+			"$allowed_ips" "$forbidden_ips" "$dropTarget"
 	fi
 }
 
@@ -1401,4 +1485,3 @@ ifup_firewall()
 	initialize_quotas
 	insert_pf_loopback_rules
 }
-

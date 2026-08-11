@@ -1,0 +1,44 @@
+Subject: [PATCH] add hack to prevent L3-filtering of non-local veth traffic
+---
+Index: target/linux/generic/hack-6.6/970-prevent_L3-filtering_of_non-local_veth_traffic.patch
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/target/linux/generic/hack-6.6/970-prevent_L3-filtering_of_non-local_veth_traffic.patch b/target/linux/generic/hack-6.6/970-prevent_L3-filtering_of_non-local_veth_traffic.patch
+new file mode 100644
+--- /dev/null	(date 1779032378662)
++++ b/target/linux/generic/hack-6.6/970-prevent_L3-filtering_of_non-local_veth_traffic.patch	(date 1779032378662)
+@@ -0,0 +1,32 @@
++Subject: [PATCH] prevent L3-filtering of non-local veth traffic
++---
++Index: net/bridge/br_netfilter_hooks.c
++IDEA additional info:
++Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
++<+>UTF-8
++===================================================================
++diff --git a/net/bridge/br_netfilter_hooks.c b/net/bridge/br_netfilter_hooks.c
++--- a/net/bridge/br_netfilter_hooks.c	(revision ffc253263a1375a65fa6c9f62a893e9767fbebfa)
+++++ b/net/bridge/br_netfilter_hooks.c	(date 1779032252772)
++@@ -29,6 +29,8 @@
++ #include <linux/in_route.h>
++ #include <linux/rculist.h>
++ #include <linux/inetdevice.h>
+++#include <linux/rtnetlink.h>
+++#include <linux/etherdevice.h>
++ 
++ #include <net/ip.h>
++ #include <net/ipv6.h>
++@@ -514,6 +516,12 @@
++ 	if (!IS_IP(skb) && !is_vlan_ip(skb, state->net) &&
++ 	    !is_pppoe_ip(skb, state->net))
++ 		return NF_ACCEPT;
+++
+++	/* Prevent non-local veth traffic to be L3-filtered */
+++	if (skb->dev && skb->dev->rtnl_link_ops &&
+++			strcmp(skb->dev->rtnl_link_ops->kind, "veth") == 0 &&
+++			!ether_addr_equal(eth_hdr(skb)->h_dest, skb->dev->dev_addr))
+++		return NF_ACCEPT;
++ 
++ 	nf_bridge_pull_encap_header_rcsum(skb);
++ 
