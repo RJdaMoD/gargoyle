@@ -28,7 +28,7 @@ hosts_to_query="$(echo $HOSTNAME; uci -q get ap_management_gargoyle.ap_managemen
 for host in $hosts_to_query; do
 	prefix=
 	if [ $host != $HOSTNAME ]; then
-		prefix="openssh-ssh -4 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedKeyTypes=+ssh-rsa \
+		prefix="openssh-ssh -4 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedKeyTypes=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa\
 			-o BatchMode=yes -o ControlMaster=auto -o ControlPath=/tmp/ssh-control-%C \
 		        -o ControlPersist=$keep_alive $host"
 	fi
@@ -42,7 +42,7 @@ iwinfo | awk -v HOSTNAME=\$HOSTNAME '
 if [ -e /lib/wifi/broadcom.sh ] ; then
 	echo "var wirelessDriver=\"broadcom\";"
 	wl assoclist | awk '{print "wifiLines.push(\""\$0"\");"}'
-elif [ -e /lib/wifi/mac80211.sh ] && [ -e "/sys/class/ieee80211/phy0" -o "/sys/class/ieee80211/wl0" ] ; then
+elif [ -e /lib/wifi/mac80211.* ] && [ -e "/sys/class/ieee80211/phy0" -o "/sys/class/ieee80211/wl0" ] ; then
 	echo "var wirelessDriver=\"mac80211\";"
 	aps=\$( iwinfo | grep ESSID | awk ' { print \$1 } ' )
 	if [ -n "\$aps" ] ; then
