@@ -1,0 +1,544 @@
+diff --git a/package/network/utils/nftables/patches/900-add-optimized-rule-output-and-find-rule.patch b/package/network/utils/nftables/patches/900-add-optimized-rule-output-and-find-rule.patch
+new file mode 100644
+index 0000000000..03007de1d3
+--- /dev/null
++++ b/package/network/utils/nftables/patches/900-add-optimized-rule-output-and-find-rule.patch
+@@ -0,0 +1,538 @@
++diff --git a/include/nftables.h b/include/nftables.h
++index c25deb36..67066971 100644
++--- a/include/nftables.h
+++++ b/include/nftables.h
++@@ -154,6 +154,7 @@ enum nftables_exit_codes {
++ };
++ 
++ struct input_descriptor;
+++struct rule;
++ struct location {
++ 	const struct input_descriptor		*indesc;
++ 	union {
++@@ -238,6 +239,8 @@ int nft_print(struct output_ctx *octx, const char *fmt, ...)
++ int nft_gmp_print(struct output_ctx *octx, const char *fmt, ...);
++ 
++ int nft_optimize(struct nft_ctx *nft, struct list_head *cmds);
+++void nft_optimize_print(struct nft_ctx *nft, struct list_head *cmds);
+++void nft_optimize_rule_prefix(struct rule *rule);
++ 
++ #define __NFT_OUTPUT_NOTSUPP	UINT_MAX
++ 
++diff --git a/include/rule.h b/include/rule.h
++index 5b3e12b5..fcf45e9e 100644
++--- a/include/rule.h
+++++ b/include/rule.h
++@@ -308,6 +308,8 @@ extern void rule_print(const struct rule *rule, struct output_ctx *octx);
++ extern struct rule *rule_lookup(const struct chain *chain, uint64_t handle);
++ extern struct rule *rule_lookup_by_index(const struct chain *chain,
++ 					 uint64_t index);
+++extern int nft_rule_evaluate(struct nft_ctx *nft, struct list_head *msgs,
+++				     struct cmd *cmd);
++ void rule_stmt_append(struct rule *rule, struct stmt *stmt);
++ void rule_stmt_insert_at(struct rule *rule, struct stmt *nstmt,
++ 			 struct stmt *stmt);
++@@ -377,6 +379,7 @@ extern struct set *set_lookup_fuzzy(const char *set_name,
++ extern const char *set_policy2str(uint32_t policy);
++ extern void set_print(const struct set *set, struct output_ctx *octx);
++ extern void set_print_plain(const struct set *s, struct output_ctx *octx);
+++extern void table_print(const struct table *table, struct output_ctx *octx);
++ 
++ static inline bool set_is_datamap(uint32_t set_flags)
++ {
++diff --git a/src/evaluate.c b/src/evaluate.c
++index 593a0140..8b7e0b6a 100644
++--- a/src/evaluate.c
+++++ b/src/evaluate.c
++@@ -5250,7 +5250,7 @@ static int rule_cache_update(struct eval_ctx *ctx, enum cmd_ops op)
++ }
++ 
++ static int rule_evaluate(struct eval_ctx *ctx, struct rule *rule,
++-			 enum cmd_ops op)
+++				 enum cmd_ops op)
++ {
++ 	struct stmt *stmt, *tstmt = NULL;
++ 	struct error_record *erec;
++@@ -5282,12 +5282,24 @@ static int rule_evaluate(struct eval_ctx *ctx, struct rule *rule,
++ 		return -1;
++ 	}
++ 
++-	if (nft_cache_needs_update(&ctx->nft->cache))
+++	if (nft_cache_needs_update(&ctx->nft->cache) && op != CMD_LIST)
++ 		return rule_cache_update(ctx, op);
++ 
++ 	return 0;
++ }
++ 
+++int nft_rule_evaluate(struct nft_ctx *nft, struct list_head *msgs,
+++			      struct cmd *cmd)
+++{
+++	struct eval_ctx ctx = {
+++		.nft = nft,
+++		.msgs = msgs,
+++	};
+++
+++	handle_merge(&cmd->rule->handle, &cmd->handle);
+++	return rule_evaluate(&ctx, cmd->rule, CMD_LIST);
+++}
+++
++ static uint32_t str2hooknum(uint32_t family, const char *hook)
++ {
++ 	if (!hook)
++@@ -5719,6 +5731,10 @@ static int cmd_evaluate_list(struct eval_ctx *ctx, struct cmd *cmd)
++ 	struct set *set;
++ 
++ 	switch (cmd->obj) {
+++	case CMD_OBJ_RULE:
+++		/* find rule: the pattern is evaluated separately after the cache
+++		 * has been populated, then matched by the list command handler. */
+++		return 0;
++ 	case CMD_OBJ_TABLE:
++ 		if (cmd->handle.table.name == NULL)
++ 			return 0;
++@@ -6127,6 +6143,8 @@ int cmd_evaluate(struct eval_ctx *ctx, struct cmd *cmd)
++ 	case CMD_GET:
++ 		return cmd_evaluate_get(ctx, cmd);
++ 	case CMD_LIST:
+++		if (cmd->obj == CMD_OBJ_RULE && cmd->rule)
+++			return 0;
++ 		return cmd_evaluate_list(ctx, cmd);
++ 	case CMD_RESET:
++ 		return cmd_evaluate_reset(ctx, cmd);
++diff --git a/src/libnftables.c b/src/libnftables.c
++index 2ae21501..260681e4 100644
++--- a/src/libnftables.c
+++++ b/src/libnftables.c
++@@ -529,6 +529,12 @@ static int nft_evaluate(struct nft_ctx *nft, struct list_head *msgs,
++ 
++ 	nft_cache_filter_fini(filter);
++ 
+++	list_for_each_entry(cmd, cmds, list) {
+++		if (cmd->op == CMD_LIST && cmd->obj == CMD_OBJ_RULE &&
+++		    cmd->rule && nft_rule_evaluate(nft, msgs, cmd) < 0)
+++			return -1;
+++	}
+++
++ 	if (nft_cmd_collapse(cmds))
++ 		collapsed = true;
++ 
++@@ -582,6 +588,9 @@ int nft_run_cmd_from_buffer(struct nft_ctx *nft, const char *buf)
++ 
++ 	parser_rc = rc;
++ 
+++	if (nft->optimize_flags)
+++		nft_optimize(nft, &cmds);
+++
++ 	rc = nft_evaluate(nft, &msgs, &cmds);
++ 	if (rc < 0) {
++ 		if (errno == EPERM) {
++@@ -596,6 +605,9 @@ int nft_run_cmd_from_buffer(struct nft_ctx *nft, const char *buf)
++ 		goto err;
++ 	}
++ 
+++	if (nft->check && nft->optimize_flags)
+++		nft_optimize_print(nft, &cmds);
+++
++ 	if (nft_netlink(nft, &cmds, &msgs) != 0)
++ 		rc = -1;
++ err:
++@@ -728,6 +740,9 @@ static int __nft_run_cmd_from_filename(struct nft_ctx *nft, const char *filename
++ 		goto err;
++ 	}
++ 
+++	if (nft->check && nft->optimize_flags)
+++		nft_optimize_print(nft, &cmds);
+++
++ 	if (nft_netlink(nft, &cmds, &msgs) != 0)
++ 		rc = -1;
++ err:
++diff --git a/src/optimize.c b/src/optimize.c
++index 224c6a52..63664e1d 100644
++--- a/src/optimize.c
+++++ b/src/optimize.c
++@@ -15,6 +15,7 @@
++ 
++ #include <errno.h>
++ #include <inttypes.h>
+++#include <limits.h>
++ #include <nftables.h>
++ #include <parser.h>
++ #include <expression.h>
++@@ -32,8 +33,77 @@ struct optimize_ctx {
++ 	struct stmt ***stmt_matrix;
++ 	struct rule **rule;
++ 	uint32_t num_rules;
+++	bool dry_run;
++ };
++ 
+++/* Keep command-line rule output consistent with rules read back from the
+++ * kernel.  The kernel represents an address mask as a prefix; parser rules
+++ * still contain the equivalent bitwise expression at print time. */
+++static bool expr_mask_is_prefix(const struct expr *expr)
+++{
+++	unsigned long n1, n2;
+++
+++	n1 = mpz_scan1(expr->value, 0);
+++	if (n1 == ULONG_MAX)
+++		return true;
+++	n2 = mpz_scan0(expr->value, n1 + 1);
+++	if (n2 < expr->len || n2 == ULONG_MAX)
+++		return false;
+++	return true;
+++}
+++
+++static unsigned int expr_mask_to_prefix(const struct expr *expr)
+++{
+++	unsigned long n;
+++
+++	n = mpz_scan1(expr->value, 0);
+++	if (n == ULONG_MAX)
+++		return 0;
+++	if (mpz_scan0(expr->value, n + 1) == ULONG_MAX)
+++		return expr->len - n;
+++	return mpz_scan0(expr->value, n + 1) - n;
+++}
+++
+++void nft_optimize_rule_prefix(struct rule *rule)
+++{
+++	struct stmt *stmt;
+++	struct expr *expr, *binop, *right, *prefix;
+++
+++	list_for_each_entry(stmt, &rule->stmts, list) {
+++		if (stmt->ops->type != STMT_EXPRESSION)
+++			continue;
+++
+++		expr = stmt->expr;
+++		if (expr->etype != EXPR_RELATIONAL ||
+++		    (expr->op != OP_EQ && expr->op != OP_NEQ) ||
+++		    expr->left->etype != EXPR_BINOP ||
+++		    expr->left->op != OP_AND ||
+++		    expr->left->left->etype != EXPR_PAYLOAD ||
+++		    expr->left->right->etype != EXPR_VALUE ||
+++		    expr->right->etype != EXPR_VALUE ||
+++		    !datatype_prefix_notation(expr->left->left->dtype) ||
+++		    !expr_mask_is_prefix(expr->left->right))
+++			continue;
+++
+++		binop = expr->left;
+++		right = expr->right;
+++		prefix = prefix_expr_alloc(&expr->location, expr_get(right),
+++					  expr_mask_to_prefix(binop->right));
+++		/* prefix_expr_alloc() intentionally starts with invalid type
+++		 * information.  The normal evaluator fills these fields in before
+++		 * linearization; do the same here because this rule is still sent to
+++		 * the kernel after check-mode output is produced. */
+++		prefix->dtype = right->dtype;
+++		prefix->byteorder = right->byteorder;
+++		prefix->len = right->len;
+++		prefix->flags |= EXPR_F_CONSTANT;
+++		expr->left = expr_get(binop->left);
+++		expr->right = prefix;
+++		expr_free(binop);
+++		expr_free(right);
+++	}
+++}
+++
++ static bool __expr_cmp(const struct expr *expr_a, const struct expr *expr_b)
++ {
++ 	if (expr_a->etype != expr_b->etype)
++@@ -1222,7 +1292,8 @@ static void merge_rules(const struct optimize_ctx *ctx,
++ 	}
++ 
++ 	fprintf(octx->error_fp, "into:\n\t");
++-	rule_print(ctx->rule[from], octx);
+++	if (!ctx->dry_run)
+++		rule_print(ctx->rule[from], octx);
++ 	fprintf(octx->error_fp, "\n");
++ 
++         octx->flags &= ~NFT_CTX_OUTPUT_STATELESS;
++@@ -1288,6 +1359,7 @@ static int chain_optimize(struct nft_ctx *nft, struct list_head *rules)
++ 	int ret;
++ 
++ 	ctx = xzalloc(sizeof(*ctx));
+++	ctx->dry_run = nft->check;
++ 
++ 	/* Step 1: collect statements in rules */
++ 	list_for_each_entry(rule, rules, list) {
++@@ -1416,3 +1488,37 @@ int nft_optimize(struct nft_ctx *nft, struct list_head *cmds)
++ 
++ 	return ret;
++ }
+++
+++void nft_optimize_print(struct nft_ctx *nft, struct list_head *cmds)
+++{
+++	struct cmd *cmd;
+++
+++	/* The JSON output path serializes kernel/cache objects.  The optimized
+++	 * rules are still parser objects at this point, so only emit the native
+++	 * syntax here. */
+++	if (nft_output_json(&nft->output))
+++		return;
+++
+++	list_for_each_entry(cmd, cmds, list) {
+++		if (cmd->op != CMD_ADD)
+++			continue;
+++
+++		switch (cmd->obj) {
+++		case CMD_OBJ_TABLE:
+++			if (cmd->table)
+++				table_print(cmd->table, &nft->output);
+++			break;
+++		case CMD_OBJ_RULE:
+++			/* A command-line rule has no containing table object to print.
+++			 * Print its (possibly optimized) rule body directly. */
+++			if (cmd->rule) {
+++				nft_optimize_rule_prefix(cmd->rule);
+++				rule_print(cmd->rule, &nft->output);
+++				nft_print(&nft->output, "\n");
+++			}
+++			break;
+++		default:
+++			break;
+++		}
+++	}
+++}
++diff --git a/src/parser_bison.y b/src/parser_bison.y
++index e2936d10..a76e522b 100644
++--- a/src/parser_bison.y
+++++ b/src/parser_bison.y
++@@ -331,6 +331,7 @@ int nft_lex(void *, void *, void *);
++ %token INSERT			"insert"
++ %token DELETE			"delete"
++ %token GET			"get"
+++%token FIND			"find"
++ %token LIST			"list"
++ %token RESET			"reset"
++ %token FLUSH			"flush"
++@@ -703,8 +704,8 @@ int nft_lex(void *, void *, void *);
++ %type <cmd>			line
++ %destructor { cmd_free($$); }	line
++ 
++-%type <cmd>			base_cmd add_cmd replace_cmd create_cmd insert_cmd delete_cmd get_cmd list_cmd reset_cmd flush_cmd rename_cmd export_cmd monitor_cmd describe_cmd import_cmd destroy_cmd
++-%destructor { cmd_free($$); }	base_cmd add_cmd replace_cmd create_cmd insert_cmd delete_cmd get_cmd list_cmd reset_cmd flush_cmd rename_cmd export_cmd monitor_cmd describe_cmd import_cmd destroy_cmd
+++%type <cmd>			base_cmd add_cmd replace_cmd create_cmd insert_cmd delete_cmd get_cmd find_cmd list_cmd reset_cmd flush_cmd rename_cmd export_cmd monitor_cmd describe_cmd import_cmd destroy_cmd
+++%destructor { cmd_free($$); }	base_cmd add_cmd replace_cmd create_cmd insert_cmd delete_cmd get_cmd find_cmd list_cmd reset_cmd flush_cmd rename_cmd export_cmd monitor_cmd describe_cmd import_cmd destroy_cmd
++ 
++ %type <handle>			table_spec tableid_spec table_or_id_spec
++ %destructor { handle_free(&$$); } table_spec tableid_spec table_or_id_spec
++@@ -1161,6 +1162,7 @@ base_cmd		:	/* empty */	add_cmd		{ $$ = $1; }
++ 			|	INSERT		insert_cmd	{ $$ = $2; }
++ 			|	DELETE		delete_cmd	{ $$ = $2; }
++ 			|	GET		get_cmd		{ $$ = $2; }
+++			|	FIND		find_cmd		{ $$ = $2; }
++ 			|	LIST		list_cmd	close_scope_list	{ $$ = $2; }
++ 			|	RESET		reset_cmd	close_scope_reset	{ $$ = $2; }
++ 			|	FLUSH		flush_cmd	{ $$ = $2; }
++@@ -1559,6 +1561,12 @@ get_cmd			:	ELEMENT		set_spec	set_block_expr
++ 			}
++ 			;
++ 
+++find_cmd		:	RULE		rule_position	rule
+++			{
+++				$$ = cmd_alloc(CMD_LIST, CMD_OBJ_RULE, &$2, &@$, $3);
+++			}
+++			;
+++
++ list_cmd		:	TABLE		table_spec
++ 			{
++ 				$$ = cmd_alloc(CMD_LIST, CMD_OBJ_TABLE, &$2, &@$, NULL);
++diff --git a/src/rule.c b/src/rule.c
++index 9bc160ec..f5eb61da 100644
++--- a/src/rule.c
+++++ b/src/rule.c
++@@ -14,6 +14,7 @@
++ #include <stdio.h>
++ #include <inttypes.h>
++ #include <errno.h>
+++#include <stdlib.h>
++ 
++ #include <statement.h>
++ #include <rule.h>
++@@ -1261,7 +1262,7 @@ static void table_print_flags(const struct table *table, const char **delim,
++ 	*delim = "\n";
++ }
++ 
++-static void table_print(const struct table *table, struct output_ctx *octx)
+++void table_print(const struct table *table, struct output_ctx *octx)
++ {
++ 	struct flowtable *flowtable;
++ 	struct chain *chain;
++@@ -2345,6 +2346,157 @@ static int do_list_hooks(struct netlink_ctx *ctx, struct cmd *cmd)
++ 	return mnl_nft_dump_nf_hooks(ctx, cmd->handle.family, devname);
++ }
++ 
+++static char *rule_to_string(const struct rule *rule)
+++{
+++	FILE *fp;
+++	char *buf = NULL;
+++	size_t len = 0;
+++	struct output_ctx octx = {
+++		.output_fp = NULL,
+++		.error_fp = stderr,
+++	};
+++
+++	fp = open_memstream(&buf, &len);
+++	if (!fp)
+++		return NULL;
+++	octx.output_fp = fp;
+++	rule_print(rule, &octx);
+++	fclose(fp);
+++	return buf;
+++}
+++
+++static void rule_find_strip_protocol_dependency(char *rule)
+++{
+++	static const char *const dependency[] = {
+++		"meta protocol ",
+++		"meta nfproto ",
+++		"meta l4proto ",
+++		"ether type ",
+++		"ip protocol ",
+++		"ip6 nexthdr ",
+++	};
+++	unsigned int i;
+++
+++	for (;;) {
+++		bool matched = false;
+++
+++		for (i = 0; i < array_size(dependency); i++) {
+++			char *match, *value, *end;
+++
+++			match = strstr(rule, dependency[i]);
+++			if (!match)
+++				continue;
+++			value = match + strlen(dependency[i]);
+++			end = strchr(value, ' ');
+++			if (end) {
+++				memmove(match, end + 1, strlen(end + 1) + 1);
+++				matched = true;
+++			}
+++			break;
+++		}
+++		if (!matched)
+++			break;
+++	}
+++}
+++
+++static void rule_find_normalize_counter(char *rule)
+++{
+++	const char *counter = "counter";
+++	const char *packets = " packets ";
+++	const char *bytes = " bytes ";
+++	char *match, *p, *end;
+++
+++	for (p = rule; (match = strstr(p, counter)) != NULL; p = match + 1) {
+++		unsigned long long value;
+++
+++		if (match != rule && match[-1] != ' ')
+++			continue;
+++		p = match + strlen(counter);
+++		if (strncmp(p, packets, strlen(packets)))
+++			continue;
+++		value = strtoull(p + strlen(packets), &end, 10);
+++		(void)value;
+++		if (end == p + strlen(packets) ||
+++		    strncmp(end, bytes, strlen(bytes)))
+++			continue;
+++		value = strtoull(end + strlen(bytes), &p, 10);
+++		(void)value;
+++		if (p == end + strlen(bytes))
+++			continue;
+++
+++		/* Keep the counter statement, but discard its live values. */
+++		memmove(match + strlen(counter), p, strlen(p) + 1);
+++	}
+++}
+++
+++static int do_find_rule(struct netlink_ctx *ctx, struct cmd *cmd,
+++			struct table *table)
+++{
+++	struct chain *chain;
+++	struct rule *rule;
+++	char *needle, *needle_normalized;
+++	int found = 0;
+++
+++	if (!table || !cmd->handle.chain.name) {
+++		errno = ENOENT;
+++		return -1;
+++	}
+++	chain = chain_cache_find(table, cmd->handle.chain.name);
+++	if (!chain) {
+++		errno = ENOENT;
+++		return -1;
+++	}
+++
+++	nft_optimize_rule_prefix(cmd->rule);
+++	needle = rule_to_string(cmd->rule);
+++	if (!needle)
+++		return -1;
+++	needle_normalized = xstrdup(needle);
+++	rule_find_strip_protocol_dependency(needle_normalized);
+++	rule_find_normalize_counter(needle_normalized);
+++
+++	if (ctx->nft->debug_mask & NFT_DEBUG_EVALUATION)
+++		fprintf(ctx->nft->output.error_fp,
+++			"find rule query: raw=[%s], normalized=[%s]\n",
+++			needle, needle_normalized);
+++
+++	list_for_each_entry(rule, &chain->rules, list) {
+++		char *candidate, *candidate_normalized;
+++		bool raw_match, normalized_match;
+++
+++		candidate = rule_to_string(rule);
+++		if (!candidate)
+++			continue;
+++		candidate_normalized = xstrdup(candidate);
+++		rule_find_strip_protocol_dependency(candidate_normalized);
+++		rule_find_normalize_counter(candidate_normalized);
+++		raw_match = !strcmp(needle, candidate);
+++		normalized_match = !strcmp(needle_normalized,
+++						candidate_normalized);
+++
+++		if (ctx->nft->debug_mask & NFT_DEBUG_EVALUATION)
+++			fprintf(ctx->nft->output.error_fp,
+++				"find rule candidate handle %" PRIu64
+++				": raw=[%s], normalized=[%s], raw-match=%s, normalized-match=%s\n",
+++				rule->handle.handle.id, candidate, candidate_normalized,
+++				raw_match ? "yes" : "no",
+++				normalized_match ? "yes" : "no");
+++
+++		if (raw_match || normalized_match) {
+++			nft_print(&ctx->nft->output, "handle %" PRIu64 "\n",
+++				  rule->handle.handle.id);
+++			found++;
+++		}
+++		free(candidate);
+++		free(candidate_normalized);
+++	}
+++	free(needle);
+++	free(needle_normalized);
+++	if (!found)
+++		errno = ENOENT;
+++	return found ? 0 : -1;
+++}
+++
++ static int do_command_list(struct netlink_ctx *ctx, struct cmd *cmd)
++ {
++ 	struct table *table = NULL;
++@@ -2372,6 +2524,8 @@ static int do_command_list(struct netlink_ctx *ctx, struct cmd *cmd)
++ 	case CMD_OBJ_RULESET:
++ 	case CMD_OBJ_RULES:
++ 	case CMD_OBJ_RULE:
+++		if (cmd->rule)
+++			return do_find_rule(ctx, cmd, table);
++ 		return do_list_ruleset(ctx, cmd);
++ 	case CMD_OBJ_METERS:
++ 		return do_list_sets(ctx, cmd);
++diff --git a/src/scanner.l b/src/scanner.l
++index c825fa79..ea4666c6 100644
++--- a/src/scanner.l
+++++ b/src/scanner.l
++@@ -356,6 +356,7 @@ addrstring	({macaddr}|{ip4addr}|{ip6addr})
++ "insert"		{ return INSERT; }
++ "delete"		{ return DELETE; }
++ "get"			{ return GET; }
+++"find"			{ return FIND; }
++ "list"			{ scanner_push_start_cond(yyscanner, SCANSTATE_CMD_LIST); return LIST; }
++ "reset"			{ scanner_push_start_cond(yyscanner, SCANSTATE_CMD_RESET); return RESET; }
++ "flush"			{ return FLUSH; }
