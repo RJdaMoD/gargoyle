@@ -395,7 +395,7 @@ if [ "$js_compress" = "true" ] || [ "$js_compress" = "TRUE" ] || [ "$js_compress
 		if [ ! -e "$top_dir/node/bin/node" ] ; then
 			rm -rf "$top_dir"/node
 			cd "$top_dir"
-			git clone git://github.com/nodejs/node.git
+			git clone https://github.com/nodejs/node.git
 			cd node
 			git checkout "$node_version_tag"
 			./configure 
@@ -412,7 +412,7 @@ if [ "$js_compress" = "true" ] || [ "$js_compress" = "TRUE" ] || [ "$js_compress
 		if [ ! -e "$top_dir/node/bin/npm" ] ; then
 			rm -rf "$top_dir"/npm
 			cd "$top_dir"
-			git clone git://github.com/npm/cli.git "$top_dir/npm"
+			git clone https://github.com/npm/cli.git "$top_dir/npm"
 			cd npm
 			git checkout "$npm_version_tag"
 			npm_binary="$node_binary $top_dir/npm/bin/npm-cli.js"
